@@ -3,28 +3,33 @@
 ============================================================
 
 Aqui debes colocar las capturas de pantalla (screenshots) de
-los botones y pantallas del juego que el bot necesita buscar.
+los botones del juego que el bot necesita buscar y clicar.
+
+El bot ejecuta estos pasos en secuencia (1 -> 2 -> ... -> 7 -> 1):
 
 IMAGENES NECESARIAS (formato BMP recomendado):
 ------------------------------------------------------------
 
-1. boton_atacar.bmp
-   -> Captura del boton "Atacar" o similar en tu juego
+1. boton_battle.bmp
+   -> Boton "Battle" para entrar a la seleccion de batalla
 
-2. boton_recoger.bmp
-   -> Captura del boton para recoger items/loot
+2. boton_solo.bmp
+   -> Boton "Solo" para seleccionar modo individual
 
-3. boton_aceptar.bmp
-   -> Captura del boton "Aceptar" o "OK"
+3. boton_setup.bmp
+   -> Boton "Setup" en la pantalla de configuracion
 
-4. pantalla_victoria.bmp
-   -> Captura de algo unico de la pantalla de victoria
+4. boton_expert.bmp
+   -> Boton "Expert" para seleccionar dificultad
 
-5. pantalla_derrota.bmp
-   -> Captura de algo unico de la pantalla de derrota
+5. boton_expansion.bmp
+   -> Boton "Expansion" para seleccionar expansion
 
-6. menu_principal.bmp
-   -> Captura de algo unico del menu principal
+6. boton_auto.bmp
+   -> Boton "Auto" para activar modo automatico
+
+7. boton_battle.bmp (mismo archivo que paso 1)
+   -> Boton "Battle" para iniciar la batalla
 
 
 COMO HACER LAS CAPTURAS:
@@ -37,7 +42,7 @@ Metodo 1 - Recorte de Windows (recomendado):
   4. Abre Paint
   5. Pega con Ctrl + V
   6. Guarda como BMP (Archivo > Guardar como > BMP)
-  7. Ponle el nombre correcto (ej: boton_atacar.bmp)
+  7. Ponle el nombre correcto (ej: boton_battle.bmp)
   8. Guardalo en esta carpeta
 
 Metodo 2 - Print Screen:
@@ -57,3 +62,4 @@ CONSEJOS IMPORTANTES:
   * Hacer una nueva captura con la misma resolucion
   * Aumentar la Variacion en la GUI del bot (50-100)
   * Asegurate de que el juego este en la misma resolucion
+  * Usa la funcion de Scroll si el boton no es visible

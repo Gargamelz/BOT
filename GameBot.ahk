@@ -28,13 +28,25 @@ global MaxReintentos := 5              ; Reintentos antes de cambiar estrategia
 global ModoDebug := true               ; Mostrar logs en la GUI
 global CarpetaImagenes := A_ScriptDir . "\imagenes"
 
-; Imágenes a buscar (rutas relativas a la carpeta 'imagenes')
-global IMG_ATACAR     := CarpetaImagenes . "\boton_atacar.bmp"
-global IMG_RECOGER    := CarpetaImagenes . "\boton_recoger.bmp"
-global IMG_ACEPTAR    := CarpetaImagenes . "\boton_aceptar.bmp"
-global IMG_VICTORIA   := CarpetaImagenes . "\pantalla_victoria.bmp"
-global IMG_DERROTA    := CarpetaImagenes . "\pantalla_derrota.bmp"
-global IMG_MENU       := CarpetaImagenes . "\menu_principal.bmp"
+; Pasos de automatización (secuencia de botones a buscar y clicar)
+global TotalPasos := 7
+global PasoActual := 1
+global PasoImagenes := {}
+global PasoNombres := {}
+PasoImagenes[1] := CarpetaImagenes . "\boton_battle.bmp"
+PasoNombres[1]  := "Battle"
+PasoImagenes[2] := CarpetaImagenes . "\boton_solo.bmp"
+PasoNombres[2]  := "Solo"
+PasoImagenes[3] := CarpetaImagenes . "\boton_setup.bmp"
+PasoNombres[3]  := "Setup"
+PasoImagenes[4] := CarpetaImagenes . "\boton_expert.bmp"
+PasoNombres[4]  := "Expert"
+PasoImagenes[5] := CarpetaImagenes . "\boton_expansion.bmp"
+PasoNombres[5]  := "Expansion"
+PasoImagenes[6] := CarpetaImagenes . "\boton_auto.bmp"
+PasoNombres[6]  := "Auto"
+PasoImagenes[7] := CarpetaImagenes . "\boton_battle.bmp"
+PasoNombres[7]  := "Battle (iniciar)"
 
 ; Scroll automático
 global ScrollActivo := false
@@ -123,7 +135,7 @@ CrearGUI() {
     Gui, Main:Add, UpDown, Range1-20, 3
 
     Gui, Main:Add, Text, x25 y283 cSilver, Scroll en paso:
-    Gui, Main:Add, DropDownList, x120 y280 w340 vDDLScrollPaso Choose1, Todos los ciclos|Paso 1: Victoria|Paso 2: Derrota|Paso 3: Recoger|Paso 4: Menú|Paso 5: Buscando/Atacar
+    Gui, Main:Add, DropDownList, x120 y280 w340 vDDLScrollPaso Choose1, Todos los ciclos|Paso 1: Battle|Paso 2: Solo|Paso 3: Setup|Paso 4: Expert|Paso 5: Expansion|Paso 6: Auto|Paso 7: Battle (iniciar)
 
     Gui, Main:Font, s9 cWhite Normal
     Gui, Main:Add, Button, x25 y315 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
@@ -201,22 +213,24 @@ ActualizarEstado() {
 ; FUNCIÓN: Verificar que las imágenes existan
 ; ============================================================================
 VerificarImagenes() {
-    archivos := ["boton_atacar.bmp", "boton_recoger.bmp", "boton_aceptar.bmp"
-                , "pantalla_victoria.bmp", "pantalla_derrota.bmp", "menu_principal.bmp"]
+    global PasoImagenes, PasoNombres, TotalPasos, CarpetaImagenes
 
     faltantes := 0
-    for i, archivo in archivos {
-        ruta := CarpetaImagenes . "\" . archivo
+    Loop, %TotalPasos% {
+        ruta := PasoImagenes[A_Index]
+        nombre := PasoNombres[A_Index]
         if !FileExist(ruta) {
-            Log("AVISO: Falta imagen -> " . archivo)
+            Log("AVISO: Falta imagen paso " . A_Index . " -> " . nombre . " (" . ruta . ")")
             faltantes++
+        } else {
+            Log("OK: Paso " . A_Index . " -> " . nombre)
         }
     }
 
     if (faltantes > 0)
         Log("Faltan " . faltantes . " imágenes en: " . CarpetaImagenes)
     else
-        Log("Todas las imágenes encontradas correctamente")
+        Log("Todas las imágenes (" . TotalPasos . " pasos) encontradas correctamente")
 }
 
 ; ============================================================================
@@ -372,18 +386,13 @@ IniciarBot:
 
     ; Leer paso de scroll
     GuiControlGet, DDLScrollPaso, Main:
-    if InStr(DDLScrollPaso, "Paso 1")
-        ScrollEnPaso := 1
-    else if InStr(DDLScrollPaso, "Paso 2")
-        ScrollEnPaso := 2
-    else if InStr(DDLScrollPaso, "Paso 3")
-        ScrollEnPaso := 3
-    else if InStr(DDLScrollPaso, "Paso 4")
-        ScrollEnPaso := 4
-    else if InStr(DDLScrollPaso, "Paso 5")
-        ScrollEnPaso := 5
-    else
-        ScrollEnPaso := 0
+    ScrollEnPaso := 0
+    Loop, 7 {
+        if InStr(DDLScrollPaso, "Paso " . A_Index) {
+            ScrollEnPaso := A_Index
+            break
+        }
+    }
 
     ; Validar ventana
     if (VentanaObjetivo = "" || VentanaObjetivo = "(ninguna seleccionada)") {
@@ -401,7 +410,8 @@ IniciarBot:
 
     BotActivo := true
     BotPausado := false
-    EstadoActual := "BUSCANDO"
+    PasoActual := 1
+    EstadoActual := "Paso 1"
     ContadorCiclos := 0
     ContadorAtaques := 0
     ContadorErrores := 0
@@ -471,112 +481,44 @@ LoopPrincipal:
     }
 
     ; ================================================================
-    ; MÁQUINA DE ESTADOS - Lógica del bot
-    ; (Scroll se ejecuta antes del paso seleccionado en la GUI)
+    ; FLUJO SECUENCIAL - Buscar y clicar el botón del paso actual
     ; ================================================================
 
-    ; Scroll: Todos los ciclos (al inicio del loop)
-    if (ScrollActivo && ScrollEnPaso = 0) {
-        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
-    }
+    ; Obtener imagen y nombre del paso actual
+    imgActual := PasoImagenes[PasoActual]
+    nombreActual := PasoNombres[PasoActual]
 
-    ; ESTADO 1: Verificar si estamos en pantalla de VICTORIA
-    if (ScrollActivo && ScrollEnPaso = 1) {
-        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
-    }
-    if (BuscarImagenEnVentana(IMG_VICTORIA, foundX, foundY)) {
-        EstadoActual := "VICTORIA"
-        ActualizarEstado()
-        Log("¡VICTORIA detectada! Buscando botón aceptar...")
-
-        ; Buscar y clicar "Aceptar" para salir de la pantalla de victoria
-        if (BuscarYClicConReintento(IMG_ACEPTAR, "Aceptar (victoria)", 3)) {
-            Log("Clic en Aceptar tras victoria. Volviendo al menú...")
-            Sleep, 2000
-        }
-        return
-    }
-
-    ; ESTADO 2: Verificar si estamos en pantalla de DERROTA
-    if (ScrollActivo && ScrollEnPaso = 2) {
-        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
-    }
-    if (BuscarImagenEnVentana(IMG_DERROTA, foundX, foundY)) {
-        EstadoActual := "DERROTA"
-        ActualizarEstado()
-        Log("Derrota detectada. Buscando botón aceptar...")
-
-        if (BuscarYClicConReintento(IMG_ACEPTAR, "Aceptar (derrota)", 3)) {
-            Log("Clic en Aceptar tras derrota. Volviendo al menú...")
-            Sleep, 2000
-        }
-        return
-    }
-
-    ; ESTADO 3: Verificar si hay algo que RECOGER
-    if (ScrollActivo && ScrollEnPaso = 3) {
-        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
-    }
-    if (BuscarImagenEnVentana(IMG_RECOGER, foundX, foundY)) {
-        EstadoActual := "RECOGIENDO"
-        ActualizarEstado()
-        Log("Botón recoger encontrado. Haciendo clic...")
-
-        HacerClicEnVentana(foundX, foundY)
-        Sleep, 1500
-        return
-    }
-
-    ; ESTADO 4: Verificar si estamos en el MENÚ PRINCIPAL
-    if (ScrollActivo && ScrollEnPaso = 4) {
-        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
-    }
-    if (BuscarImagenEnVentana(IMG_MENU, foundX, foundY)) {
-        EstadoActual := "MENU"
-        ActualizarEstado()
-        Log("Menú principal detectado. Buscando botón atacar...")
-
-        ; Desde el menú, buscar el botón de atacar
-        if (BuscarYClicConReintento(IMG_ATACAR, "Atacar", MaxReintentos)) {
-            ContadorAtaques++
-            Log("¡Ataque #" . ContadorAtaques . " iniciado!")
-            Sleep, 2000
-        } else {
-            Log("No se encontró botón atacar en el menú")
-            ContadorErrores++
-        }
-        return
-    }
-
-    ; ESTADO 5: BUSCAR botón de atacar directamente (estado por defecto)
-    if (ScrollActivo && ScrollEnPaso = 5) {
-        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
-    }
-    EstadoActual := "BUSCANDO"
+    EstadoActual := "Paso " . PasoActual . "/" . TotalPasos . ": " . nombreActual
     ActualizarEstado()
 
-    if (BuscarYClicConReintento(IMG_ATACAR, "Atacar", MaxReintentos)) {
-        ContadorAtaques++
-        EstadoActual := "ATACANDO"
-        ActualizarEstado()
-        Log("¡Ataque #" . ContadorAtaques . " ejecutado!")
-
-        ; Esperar 2 segundos y verificar si la pantalla cambió
-        Sleep, 2000
-
-        ; Verificar si el ataque surtió efecto (si ya no aparece el botón)
-        if (!BuscarImagenEnVentana(IMG_ATACAR, tempX, tempY)) {
-            Log("Pantalla cambió después del ataque (botón ya no visible)")
-        } else {
-            Log("El botón de atacar sigue visible. Reintentando en el próximo ciclo...")
-        }
-    } else {
-        Log("Ciclo " . ContadorCiclos . ": No se encontró ninguna imagen conocida. Esperando...")
+    ; Verificar que el archivo de imagen exista
+    if !FileExist(imgActual) {
+        Log("ERROR: Falta imagen para paso " . PasoActual . " (" . nombreActual . "): " . imgActual)
         ContadorErrores++
+        return
+    }
 
-        ; Si hay muchos errores seguidos, avisar
+    ; Ejecutar scroll si corresponde a este paso
+    if (ScrollActivo && (ScrollEnPaso = 0 || ScrollEnPaso = PasoActual)) {
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+        Sleep, 300
+    }
+
+    ; Buscar la imagen del paso actual
+    if (BuscarImagenEnVentana(imgActual, foundX, foundY)) {
+        Log("Paso " . PasoActual . ": '" . nombreActual . "' encontrado en (" . foundX . ", " . foundY . ")")
+        HacerClicEnVentana(foundX, foundY)
+        ContadorAtaques++
+        Sleep, 1500
+
+        ; Avanzar al siguiente paso (volver al 1 después del último)
+        PasoActual := (PasoActual >= TotalPasos) ? 1 : PasoActual + 1
+        Log(">>> Avanzando a paso " . PasoActual . ": " . PasoNombres[PasoActual])
+    } else {
+        ContadorErrores++
+        ; Logear solo cada 10 intentos fallidos para no saturar
         if (Mod(ContadorErrores, 10) = 0) {
-            Log("AVISO: " . ContadorErrores . " errores acumulados. ¿El juego sigue abierto? ¿Las imágenes son correctas?")
+            Log("Paso " . PasoActual . ": '" . nombreActual . "' no encontrado (" . ContadorErrores . " intentos fallidos)")
         }
     }
 
