@@ -57,6 +57,8 @@ return
 ; FUNCIÓN: Crear la interfaz gráfica principal
 ; ============================================================================
 CrearGUI() {
+    global EditVentana, EditVariacion, EditIntervalo, EditReintentos, ChkDebug, TextoEstado, LogText
+
     ; Destruir GUI anterior si existe
     Gui, Main:Destroy
 
