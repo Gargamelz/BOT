@@ -36,6 +36,12 @@ global IMG_VICTORIA   := CarpetaImagenes . "\pantalla_victoria.bmp"
 global IMG_DERROTA    := CarpetaImagenes . "\pantalla_derrota.bmp"
 global IMG_MENU       := CarpetaImagenes . "\menu_principal.bmp"
 
+; Scroll automático
+global ScrollActivo := false
+global ScrollRelX := 200                 ; Coordenada X relativa a la ventana
+global ScrollRelY := 300                 ; Coordenada Y relativa a la ventana
+global ScrollCantidad := 3               ; Clicks de scroll por ciclo
+
 ; Contadores
 global ContadorAtaques := 0
 global ContadorCiclos := 0
@@ -58,6 +64,7 @@ return
 ; ============================================================================
 CrearGUI() {
     global EditVentana, EditVariacion, EditIntervalo, EditReintentos, ChkDebug, TextoEstado, LogText
+    global ChkScroll, EditScrollX, EditScrollY, EditScrollCant
 
     ; Destruir GUI anterior si existe
     Gui, Main:Destroy
@@ -100,31 +107,49 @@ CrearGUI() {
 
     Gui, Main:Add, CheckBox, x240 y175 vChkDebug Checked cWhite, Modo Debug (logs visibles)
 
-    ; --- SECCIÓN: Control del Bot ---
+    ; --- SECCIÓN: Scroll Automático ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y230 w460 h60, CONTROL DEL BOT
+    Gui, Main:Add, GroupBox, x10 y230 w460 h90, SCROLL AUTOMÁTICO
+
+    Gui, Main:Font, s9 cSilver Normal
+    Gui, Main:Add, CheckBox, x25 y255 vChkScroll cWhite, Activar scroll
+    Gui, Main:Add, Text, x150 y256 cSilver, X (rel):
+    Gui, Main:Add, Edit, x195 y253 w55 h22 vEditScrollX, 200
+    Gui, Main:Add, Text, x260 y256 cSilver, Y (rel):
+    Gui, Main:Add, Edit, x305 y253 w55 h22 vEditScrollY, 300
+    Gui, Main:Add, Text, x370 y256 cSilver, Clicks:
+    Gui, Main:Add, Edit, x415 y253 w45 h22 vEditScrollCant, 3
+    Gui, Main:Add, UpDown, Range1-20, 3
 
     Gui, Main:Font, s9 cWhite Normal
-    Gui, Main:Add, Button, x25 y255 w140 h25 gIniciarBot, INICIAR (F12)
-    Gui, Main:Add, Button, x175 y255 w140 h25 gPausarBot, PAUSAR (F12)
-    Gui, Main:Add, Button, x325 y255 w135 h25 gDetenerBot, DETENER (F11)
+    Gui, Main:Add, Button, x25 y285 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
+    Gui, Main:Add, Button, x235 y285 w225 h25 gProbarScroll, Probar Scroll
+
+    ; --- SECCIÓN: Control del Bot ---
+    Gui, Main:Font, s10 cWhite Bold
+    Gui, Main:Add, GroupBox, x10 y330 w460 h60, CONTROL DEL BOT
+
+    Gui, Main:Font, s9 cWhite Normal
+    Gui, Main:Add, Button, x25 y355 w140 h25 gIniciarBot, INICIAR (F12)
+    Gui, Main:Add, Button, x175 y355 w140 h25 gPausarBot, PAUSAR (F12)
+    Gui, Main:Add, Button, x325 y355 w135 h25 gDetenerBot, DETENER (F11)
 
     ; --- SECCIÓN: Estado ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y300 w460 h50, ESTADO
+    Gui, Main:Add, GroupBox, x10 y400 w460 h50, ESTADO
 
     Gui, Main:Font, s11 c0x00FF88 Bold
-    Gui, Main:Add, Text, x25 y322 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
+    Gui, Main:Add, Text, x25 y422 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
 
     ; --- SECCIÓN: Log de Depuración ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y360 w460 h220, LOG DE DEPURACIÓN
+    Gui, Main:Add, GroupBox, x10 y460 w460 h220, LOG DE DEPURACIÓN
 
     Gui, Main:Font, s8 c0x00FF88 Normal, Consolas
-    Gui, Main:Add, Edit, x25 y385 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
+    Gui, Main:Add, Edit, x25 y485 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
 
     ; --- Mostrar ventana ---
-    Gui, Main:Show, w480 h595, Game Bot - AutoHotkey v1.1
+    Gui, Main:Show, w480 h695, Game Bot - AutoHotkey v1.1
     Log("=== Game Bot iniciado ===")
     Log("Carpeta de imágenes: " . CarpetaImagenes)
     Log("Presiona F12 para iniciar/pausar, F11 para detener")
@@ -327,9 +352,19 @@ IniciarBot:
     GuiControlGet, ChkDebug, Main:
 
     Variacion := EditVariacion
-    IntervaloLoop := EditIntervalo
+    IntervaloLoop := RegExReplace(EditIntervalo, ",", "") + 0
     MaxReintentos := EditReintentos
     ModoDebug := ChkDebug
+
+    ; Leer configuración de scroll
+    GuiControlGet, ChkScroll, Main:
+    GuiControlGet, EditScrollX, Main:
+    GuiControlGet, EditScrollY, Main:
+    GuiControlGet, EditScrollCant, Main:
+    ScrollActivo := ChkScroll
+    ScrollRelX := RegExReplace(EditScrollX, ",", "") + 0
+    ScrollRelY := RegExReplace(EditScrollY, ",", "") + 0
+    ScrollCantidad := EditScrollCant
 
     ; Validar ventana
     if (VentanaObjetivo = "" || VentanaObjetivo = "(ninguna seleccionada)") {
@@ -354,6 +389,10 @@ IniciarBot:
     Log("=== BOT INICIADO ===")
     Log("Ventana: " . VentanaObjetivo)
     Log("Variación: " . Variacion . " | Intervalo: " . IntervaloLoop . "ms | Reintentos: " . MaxReintentos)
+    if (ScrollActivo)
+        Log("Scroll activo en (" . ScrollRelX . ", " . ScrollRelY . ") x" . ScrollCantidad . " clicks/ciclo")
+    else
+        Log("Scroll desactivado")
     ActualizarEstado()
 
     ; Iniciar el loop principal
@@ -409,6 +448,11 @@ LoopPrincipal:
     if (WinW = 0 || WinH = 0) {
         Log("AVISO: Ventana minimizada o sin tamaño. Esperando...")
         return
+    }
+
+    ; Ejecutar scroll automático si está activado
+    if (ScrollActivo) {
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
     }
 
     ; ================================================================
@@ -605,6 +649,99 @@ BuscarYClicConReintento(ByRef rutaImagen, nombreAccion, reintentos) {
     Log("FALLO: No se pudo completar '" . nombreAccion . "' después de " . reintentos . " intentos")
     return false
 }
+
+; ============================================================================
+; FUNCIÓN: Hacer scroll en la ventana en coordenadas relativas
+; Usa WM_MOUSEWHEEL (0x20A) via PostMessage para funcionar en segundo plano
+; ============================================================================
+HacerScrollEnVentana(relX, relY, cantidad) {
+    global VentanaObjetivo
+
+    ; WM_MOUSEWHEEL = 0x20A
+    ; wParam alto: delta (-120 por click hacia abajo)
+    ; lParam: posición del cursor (relativa al cliente)
+    wheelDelta := -120 * cantidad
+    wParam := (wheelDelta << 16) & 0xFFFFFFFF
+    lParam := ((relY & 0xFFFF) << 16) | (relX & 0xFFFF)
+
+    PostMessage, 0x20A, %wParam%, %lParam%,, %VentanaObjetivo%
+
+    if (ErrorLevel)
+        Log("AVISO: Scroll falló en (" . relX . ", " . relY . ")")
+}
+
+; ============================================================================
+; LABEL: Seleccionar punto de scroll haciendo clic en la ventana del juego
+; ============================================================================
+SeleccionarPuntoScroll:
+    if (VentanaObjetivo = "" || VentanaObjetivo = "(ninguna seleccionada)") {
+        MsgBox, 16, Error, Primero selecciona una ventana del juego.
+        return
+    }
+    IfWinNotExist, %VentanaObjetivo%
+    {
+        MsgBox, 16, Error, La ventana '%VentanaObjetivo%' no existe.
+        return
+    }
+
+    Log(">>> Haz clic en el punto de scroll dentro de 5 segundos...")
+    MsgBox, 64, Seleccionar Punto Scroll, Después de cerrar este mensaje tienes 5 segundos para hacer clic en el punto de la ventana del juego donde quieres hacer scroll., 5
+
+    Sleep, 5000
+
+    ; Capturar posición del mouse
+    MouseGetPos, mouseX, mouseY, hwndBajo
+    WinGetTitle, tituloBajo, ahk_id %hwndBajo%
+
+    ; Verificar que el clic fue en la ventana correcta
+    if (tituloBajo != VentanaObjetivo) {
+        Log("ERROR: Hiciste clic fuera de la ventana objetivo")
+        MsgBox, 16, Error, Hiciste clic fuera de la ventana del juego.`nIntenta de nuevo.
+        return
+    }
+
+    ; Obtener posición de la ventana para calcular coordenadas relativas
+    WinGetPos, wx, wy,,, %VentanaObjetivo%
+    nuevoX := mouseX - wx
+    nuevoY := mouseY - wy
+
+    ; Actualizar campos en la GUI
+    GuiControl, Main:, EditScrollX, %nuevoX%
+    GuiControl, Main:, EditScrollY, %nuevoY%
+
+    ; Actualizar variables globales
+    ScrollRelX := nuevoX
+    ScrollRelY := nuevoY
+
+    Log("Punto de scroll seleccionado: (" . nuevoX . ", " . nuevoY . ")")
+    MsgBox, 64, Punto Seleccionado, Punto de scroll establecido en:`nX: %nuevoX%  Y: %nuevoY%`n`n(Coordenadas relativas a la ventana)
+return
+
+; ============================================================================
+; LABEL: Probar scroll en el punto configurado
+; ============================================================================
+ProbarScroll:
+    if (VentanaObjetivo = "" || VentanaObjetivo = "(ninguna seleccionada)") {
+        MsgBox, 16, Error, Primero selecciona una ventana del juego.
+        return
+    }
+    IfWinNotExist, %VentanaObjetivo%
+    {
+        MsgBox, 16, Error, La ventana '%VentanaObjetivo%' no existe.
+        return
+    }
+
+    ; Leer valores actuales de la GUI
+    GuiControlGet, tmpScrollX, Main:, EditScrollX
+    GuiControlGet, tmpScrollY, Main:, EditScrollY
+    GuiControlGet, tmpScrollCant, Main:, EditScrollCant
+    tmpScrollX := RegExReplace(tmpScrollX, ",", "") + 0
+    tmpScrollY := RegExReplace(tmpScrollY, ",", "") + 0
+
+    Log("Probando scroll en (" . tmpScrollX . ", " . tmpScrollY . ") x" . tmpScrollCant . " clicks...")
+    HacerScrollEnVentana(tmpScrollX, tmpScrollY, tmpScrollCant)
+    Log("Scroll de prueba enviado")
+return
 
 ; ============================================================================
 ; EVENTOS DE LA GUI
