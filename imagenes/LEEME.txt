@@ -28,8 +28,8 @@ IMAGENES NECESARIAS (formato BMP recomendado):
 6. boton_auto.bmp
    -> Boton "Auto" para activar modo automatico
 
-7. boton_battle.bmp (mismo archivo que paso 1)
-   -> Boton "Battle" para iniciar la batalla
+7. boton_iniciar.bmp
+   -> Boton "Iniciar" para confirmar e iniciar la batalla
 
 
 COMO HACER LAS CAPTURAS:

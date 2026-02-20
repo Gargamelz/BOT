@@ -45,20 +45,24 @@ PasoImagenes[5] := CarpetaImagenes . "\boton_expansion.bmp"
 PasoNombres[5]  := "Expansion"
 PasoImagenes[6] := CarpetaImagenes . "\boton_auto.bmp"
 PasoNombres[6]  := "Auto"
-PasoImagenes[7] := CarpetaImagenes . "\boton_battle.bmp"
-PasoNombres[7]  := "Battle (iniciar)"
+PasoImagenes[7] := CarpetaImagenes . "\boton_iniciar.bmp"
+PasoNombres[7]  := "Iniciar"
 
 ; Scroll automático
 global ScrollActivo := false
 global ScrollRelX := 200                 ; Coordenada X relativa a la ventana
 global ScrollRelY := 300                 ; Coordenada Y relativa a la ventana
 global ScrollCantidad := 3               ; Clicks de scroll por ciclo
-global ScrollEnPaso := 0                 ; 0=Todos, 1=Victoria, 2=Derrota, 3=Recoger, 4=Menú, 5=Buscando
+global ScrollEnPaso := 0                 ; 0=Todos, 1-7=Paso específico
 
 ; Contadores
 global ContadorAtaques := 0
 global ContadorCiclos := 0
 global ContadorErrores := 0
+
+; Anti-atasco: errores consecutivos en el mismo paso
+global ErroresConsecutivos := 0          ; Errores seguidos en el paso actual
+global MaxErroresConsecutivos := 30      ; Limite antes de intentar recuperación
 
 ; ============================================================================
 ; CREAR CARPETA DE IMÁGENES SI NO EXISTE
@@ -135,7 +139,7 @@ CrearGUI() {
     Gui, Main:Add, UpDown, Range1-20, 3
 
     Gui, Main:Add, Text, x25 y283 cSilver, Scroll en paso:
-    Gui, Main:Add, DropDownList, x120 y280 w340 vDDLScrollPaso Choose1, Todos los ciclos|Paso 1: Battle|Paso 2: Solo|Paso 3: Setup|Paso 4: Expert|Paso 5: Expansion|Paso 6: Auto|Paso 7: Battle (iniciar)
+    Gui, Main:Add, DropDownList, x120 y280 w340 vDDLScrollPaso Choose1, Todos los ciclos|Paso 1: Battle|Paso 2: Solo|Paso 3: Setup|Paso 4: Expert|Paso 5: Expansion|Paso 6: Auto|Paso 7: Iniciar
 
     Gui, Main:Font, s9 cWhite Normal
     Gui, Main:Add, Button, x25 y315 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
@@ -186,6 +190,15 @@ Log(mensaje) {
 
     GuiControlGet, contenido, Main:, LogText
     nuevo := contenido . linea
+
+    ; Limitar log a ~500 líneas para evitar consumo excesivo de memoria
+    if (StrLen(nuevo) > 30000) {
+        ; Cortar la primera mitad del log
+        pos := InStr(nuevo, "`n",, StrLen(nuevo) // 2)
+        if (pos > 0)
+            nuevo := "... (log recortado) ...`r`n" . SubStr(nuevo, pos + 1)
+    }
+
     GuiControl, Main:, LogText, %nuevo%
 
     ; Auto-scroll al final
@@ -415,6 +428,7 @@ IniciarBot:
     ContadorCiclos := 0
     ContadorAtaques := 0
     ContadorErrores := 0
+    ErroresConsecutivos := 0
     Log("=== BOT INICIADO ===")
     Log("Ventana: " . VentanaObjetivo)
     Log("Variación: " . Variacion . " | Intervalo: " . IntervaloLoop . "ms | Reintentos: " . MaxReintentos)
@@ -457,6 +471,8 @@ return
 ; LOOP PRINCIPAL DEL BOT
 ; ============================================================================
 LoopPrincipal:
+    Critical  ; Prevenir interrupciones durante la ejecución del ciclo
+
     if (!BotActivo || BotPausado)
         return
 
@@ -484,6 +500,13 @@ LoopPrincipal:
     ; FLUJO SECUENCIAL - Buscar y clicar el botón del paso actual
     ; ================================================================
 
+    ; Protección de límites: si PasoActual se sale de rango, reiniciar
+    if (PasoActual < 1 || PasoActual > TotalPasos) {
+        Log("AVISO: PasoActual fuera de rango (" . PasoActual . "). Reiniciando a paso 1.")
+        PasoActual := 1
+        ErroresConsecutivos := 0
+    }
+
     ; Obtener imagen y nombre del paso actual
     imgActual := PasoImagenes[PasoActual]
     nombreActual := PasoNombres[PasoActual]
@@ -509,16 +532,27 @@ LoopPrincipal:
         Log("Paso " . PasoActual . ": '" . nombreActual . "' encontrado en (" . foundX . ", " . foundY . ")")
         HacerClicEnVentana(foundX, foundY)
         ContadorAtaques++
+        ErroresConsecutivos := 0  ; Resetear contador de errores al tener éxito
         Sleep, 1500
 
         ; Avanzar al siguiente paso (volver al 1 después del último)
         PasoActual := (PasoActual >= TotalPasos) ? 1 : PasoActual + 1
         Log(">>> Avanzando a paso " . PasoActual . ": " . PasoNombres[PasoActual])
     } else {
+        ErroresConsecutivos++
         ContadorErrores++
-        ; Logear solo cada 10 intentos fallidos para no saturar
-        if (Mod(ContadorErrores, 10) = 0) {
-            Log("Paso " . PasoActual . ": '" . nombreActual . "' no encontrado (" . ContadorErrores . " intentos fallidos)")
+
+        ; Logear cada 10 intentos fallidos para no saturar
+        if (Mod(ErroresConsecutivos, 10) = 0) {
+            Log("Paso " . PasoActual . ": '" . nombreActual . "' no encontrado (" . ErroresConsecutivos . " intentos consecutivos)")
+        }
+
+        ; ANTI-ATASCO: si se superó el límite de errores consecutivos, reiniciar secuencia
+        if (ErroresConsecutivos >= MaxErroresConsecutivos) {
+            Log("RECUPERACION: Atascado en paso " . PasoActual . " (" . nombreActual . ") por " . ErroresConsecutivos . " ciclos. Reiniciando desde paso 1...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
+            Log(">>> Reiniciado a paso 1: " . PasoNombres[1])
         }
     }
 
@@ -589,43 +623,6 @@ HacerClicEnVentana(screenX, screenY) {
     } else {
         Log("Clic enviado en (" . relX . ", " . relY . ") de la ventana")
     }
-}
-
-; ============================================================================
-; FUNCIÓN: Buscar imagen y hacer clic, con reintentos automáticos
-; Retorna true si tuvo éxito, false si agotó los reintentos
-; ============================================================================
-BuscarYClicConReintento(ByRef rutaImagen, nombreAccion, reintentos) {
-    global IntervaloLoop
-
-    Loop, %reintentos% {
-        intentoActual := A_Index
-
-        if (BuscarImagenEnVentana(rutaImagen, fx, fy)) {
-            Log("Imagen '" . nombreAccion . "' encontrada en (" . fx . ", " . fy . ") - Intento " . intentoActual)
-            HacerClicEnVentana(fx, fy)
-
-            ; Esperar un poco y verificar si el clic surtió efecto
-            Sleep, 500
-
-            ; Verificar: si la imagen desapareció, el clic funcionó
-            if (!BuscarImagenEnVentana(rutaImagen, tempX, tempY)) {
-                Log("Clic en '" . nombreAccion . "' confirmado (imagen desapareció)")
-                return true
-            }
-
-            ; Si la imagen sigue ahí, el clic quizás no funcionó
-            Log("Imagen '" . nombreAccion . "' sigue visible tras clic. Reintentando... (" . intentoActual . "/" . reintentos . ")")
-            Sleep, 500
-        } else {
-            if (intentoActual = 1)
-                Log("Imagen '" . nombreAccion . "' no encontrada. Reintentando... (" . intentoActual . "/" . reintentos . ")")
-            Sleep, IntervaloLoop // 2
-        }
-    }
-
-    Log("FALLO: No se pudo completar '" . nombreAccion . "' después de " . reintentos . " intentos")
-    return false
 }
 
 ; ============================================================================
