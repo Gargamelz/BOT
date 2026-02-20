@@ -1,0 +1,59 @@
+============================================================
+  CARPETA DE IMAGENES DEL GAME BOT
+============================================================
+
+Aqui debes colocar las capturas de pantalla (screenshots) de
+los botones y pantallas del juego que el bot necesita buscar.
+
+IMAGENES NECESARIAS (formato BMP recomendado):
+------------------------------------------------------------
+
+1. boton_atacar.bmp
+   -> Captura del boton "Atacar" o similar en tu juego
+
+2. boton_recoger.bmp
+   -> Captura del boton para recoger items/loot
+
+3. boton_aceptar.bmp
+   -> Captura del boton "Aceptar" o "OK"
+
+4. pantalla_victoria.bmp
+   -> Captura de algo unico de la pantalla de victoria
+
+5. pantalla_derrota.bmp
+   -> Captura de algo unico de la pantalla de derrota
+
+6. menu_principal.bmp
+   -> Captura de algo unico del menu principal
+
+
+COMO HACER LAS CAPTURAS:
+------------------------------------------------------------
+
+Metodo 1 - Recorte de Windows (recomendado):
+  1. Abre tu juego
+  2. Presiona Win + Shift + S
+  3. Selecciona SOLO el boton o area que necesitas
+  4. Abre Paint
+  5. Pega con Ctrl + V
+  6. Guarda como BMP (Archivo > Guardar como > BMP)
+  7. Ponle el nombre correcto (ej: boton_atacar.bmp)
+  8. Guardalo en esta carpeta
+
+Metodo 2 - Print Screen:
+  1. Abre tu juego
+  2. Presiona Print Screen (PrtSc)
+  3. Abre Paint
+  4. Pega con Ctrl + V
+  5. Selecciona y recorta SOLO el boton
+  6. Guarda como BMP en esta carpeta
+
+CONSEJOS IMPORTANTES:
+------------------------------------------------------------
+- Recorta SOLO el boton, no toda la pantalla
+- El recorte debe ser lo mas preciso posible
+- Usa formato BMP para mejor compatibilidad
+- Si el bot no encuentra la imagen, intenta:
+  * Hacer una nueva captura con la misma resolucion
+  * Aumentar la Variacion en la GUI del bot (50-100)
+  * Asegurate de que el juego este en la misma resolucion
