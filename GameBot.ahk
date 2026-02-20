@@ -41,6 +41,7 @@ global ScrollActivo := false
 global ScrollRelX := 200                 ; Coordenada X relativa a la ventana
 global ScrollRelY := 300                 ; Coordenada Y relativa a la ventana
 global ScrollCantidad := 3               ; Clicks de scroll por ciclo
+global ScrollEnPaso := 0                 ; 0=Todos, 1=Victoria, 2=Derrota, 3=Recoger, 4=Menú, 5=Buscando
 
 ; Contadores
 global ContadorAtaques := 0
@@ -64,7 +65,7 @@ return
 ; ============================================================================
 CrearGUI() {
     global EditVentana, EditVariacion, EditIntervalo, EditReintentos, ChkDebug, TextoEstado, LogText
-    global ChkScroll, EditScrollX, EditScrollY, EditScrollCant
+    global ChkScroll, EditScrollX, EditScrollY, EditScrollCant, DDLScrollPaso
 
     ; Destruir GUI anterior si existe
     Gui, Main:Destroy
@@ -109,7 +110,7 @@ CrearGUI() {
 
     ; --- SECCIÓN: Scroll Automático ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y230 w460 h90, SCROLL AUTOMÁTICO
+    Gui, Main:Add, GroupBox, x10 y230 w460 h120, SCROLL AUTOMÁTICO
 
     Gui, Main:Font, s9 cSilver Normal
     Gui, Main:Add, CheckBox, x25 y255 vChkScroll cWhite, Activar scroll
@@ -121,35 +122,38 @@ CrearGUI() {
     Gui, Main:Add, Edit, x415 y253 w45 h22 vEditScrollCant, 3
     Gui, Main:Add, UpDown, Range1-20, 3
 
+    Gui, Main:Add, Text, x25 y283 cSilver, Scroll en paso:
+    Gui, Main:Add, DropDownList, x120 y280 w340 vDDLScrollPaso Choose1, Todos los ciclos|Paso 1: Victoria|Paso 2: Derrota|Paso 3: Recoger|Paso 4: Menú|Paso 5: Buscando/Atacar
+
     Gui, Main:Font, s9 cWhite Normal
-    Gui, Main:Add, Button, x25 y285 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
-    Gui, Main:Add, Button, x235 y285 w225 h25 gProbarScroll, Probar Scroll
+    Gui, Main:Add, Button, x25 y315 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
+    Gui, Main:Add, Button, x235 y315 w225 h25 gProbarScroll, Probar Scroll
 
     ; --- SECCIÓN: Control del Bot ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y330 w460 h60, CONTROL DEL BOT
+    Gui, Main:Add, GroupBox, x10 y360 w460 h60, CONTROL DEL BOT
 
     Gui, Main:Font, s9 cWhite Normal
-    Gui, Main:Add, Button, x25 y355 w140 h25 gIniciarBot, INICIAR (F12)
-    Gui, Main:Add, Button, x175 y355 w140 h25 gPausarBot, PAUSAR (F12)
-    Gui, Main:Add, Button, x325 y355 w135 h25 gDetenerBot, DETENER (F11)
+    Gui, Main:Add, Button, x25 y385 w140 h25 gIniciarBot, INICIAR (F12)
+    Gui, Main:Add, Button, x175 y385 w140 h25 gPausarBot, PAUSAR (F12)
+    Gui, Main:Add, Button, x325 y385 w135 h25 gDetenerBot, DETENER (F11)
 
     ; --- SECCIÓN: Estado ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y400 w460 h50, ESTADO
+    Gui, Main:Add, GroupBox, x10 y430 w460 h50, ESTADO
 
     Gui, Main:Font, s11 c0x00FF88 Bold
-    Gui, Main:Add, Text, x25 y422 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
+    Gui, Main:Add, Text, x25 y452 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
 
     ; --- SECCIÓN: Log de Depuración ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y460 w460 h220, LOG DE DEPURACIÓN
+    Gui, Main:Add, GroupBox, x10 y490 w460 h220, LOG DE DEPURACIÓN
 
     Gui, Main:Font, s8 c0x00FF88 Normal, Consolas
-    Gui, Main:Add, Edit, x25 y485 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
+    Gui, Main:Add, Edit, x25 y515 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
 
     ; --- Mostrar ventana ---
-    Gui, Main:Show, w480 h695, Game Bot - AutoHotkey v1.1
+    Gui, Main:Show, w480 h725, Game Bot - AutoHotkey v1.1
     Log("=== Game Bot iniciado ===")
     Log("Carpeta de imágenes: " . CarpetaImagenes)
     Log("Presiona F12 para iniciar/pausar, F11 para detener")
@@ -366,6 +370,21 @@ IniciarBot:
     ScrollRelY := RegExReplace(EditScrollY, ",", "") + 0
     ScrollCantidad := EditScrollCant
 
+    ; Leer paso de scroll
+    GuiControlGet, DDLScrollPaso, Main:
+    if InStr(DDLScrollPaso, "Paso 1")
+        ScrollEnPaso := 1
+    else if InStr(DDLScrollPaso, "Paso 2")
+        ScrollEnPaso := 2
+    else if InStr(DDLScrollPaso, "Paso 3")
+        ScrollEnPaso := 3
+    else if InStr(DDLScrollPaso, "Paso 4")
+        ScrollEnPaso := 4
+    else if InStr(DDLScrollPaso, "Paso 5")
+        ScrollEnPaso := 5
+    else
+        ScrollEnPaso := 0
+
     ; Validar ventana
     if (VentanaObjetivo = "" || VentanaObjetivo = "(ninguna seleccionada)") {
         MsgBox, 16, Error, Primero debes seleccionar la ventana del juego.
@@ -389,9 +408,10 @@ IniciarBot:
     Log("=== BOT INICIADO ===")
     Log("Ventana: " . VentanaObjetivo)
     Log("Variación: " . Variacion . " | Intervalo: " . IntervaloLoop . "ms | Reintentos: " . MaxReintentos)
-    if (ScrollActivo)
-        Log("Scroll activo en (" . ScrollRelX . ", " . ScrollRelY . ") x" . ScrollCantidad . " clicks/ciclo")
-    else
+    if (ScrollActivo) {
+        pasoNombre := (ScrollEnPaso = 0) ? "Todos los ciclos" : "Paso " . ScrollEnPaso
+        Log("Scroll activo en (" . ScrollRelX . ", " . ScrollRelY . ") x" . ScrollCantidad . " clicks | " . pasoNombre)
+    } else
         Log("Scroll desactivado")
     ActualizarEstado()
 
@@ -450,16 +470,20 @@ LoopPrincipal:
         return
     }
 
-    ; Ejecutar scroll automático si está activado
-    if (ScrollActivo) {
+    ; ================================================================
+    ; MÁQUINA DE ESTADOS - Lógica del bot
+    ; (Scroll se ejecuta antes del paso seleccionado en la GUI)
+    ; ================================================================
+
+    ; Scroll: Todos los ciclos (al inicio del loop)
+    if (ScrollActivo && ScrollEnPaso = 0) {
         HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
     }
 
-    ; ================================================================
-    ; MÁQUINA DE ESTADOS - Lógica del bot
-    ; ================================================================
-
     ; ESTADO 1: Verificar si estamos en pantalla de VICTORIA
+    if (ScrollActivo && ScrollEnPaso = 1) {
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+    }
     if (BuscarImagenEnVentana(IMG_VICTORIA, foundX, foundY)) {
         EstadoActual := "VICTORIA"
         ActualizarEstado()
@@ -474,6 +498,9 @@ LoopPrincipal:
     }
 
     ; ESTADO 2: Verificar si estamos en pantalla de DERROTA
+    if (ScrollActivo && ScrollEnPaso = 2) {
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+    }
     if (BuscarImagenEnVentana(IMG_DERROTA, foundX, foundY)) {
         EstadoActual := "DERROTA"
         ActualizarEstado()
@@ -487,6 +514,9 @@ LoopPrincipal:
     }
 
     ; ESTADO 3: Verificar si hay algo que RECOGER
+    if (ScrollActivo && ScrollEnPaso = 3) {
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+    }
     if (BuscarImagenEnVentana(IMG_RECOGER, foundX, foundY)) {
         EstadoActual := "RECOGIENDO"
         ActualizarEstado()
@@ -498,6 +528,9 @@ LoopPrincipal:
     }
 
     ; ESTADO 4: Verificar si estamos en el MENÚ PRINCIPAL
+    if (ScrollActivo && ScrollEnPaso = 4) {
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+    }
     if (BuscarImagenEnVentana(IMG_MENU, foundX, foundY)) {
         EstadoActual := "MENU"
         ActualizarEstado()
@@ -516,6 +549,9 @@ LoopPrincipal:
     }
 
     ; ESTADO 5: BUSCAR botón de atacar directamente (estado por defecto)
+    if (ScrollActivo && ScrollEnPaso = 5) {
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+    }
     EstadoActual := "BUSCANDO"
     ActualizarEstado()
 
