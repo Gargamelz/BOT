@@ -53,6 +53,7 @@ global ScrollActivo := false
 global ScrollRelX := 200                 ; Coordenada X relativa a la ventana
 global ScrollRelY := 300                 ; Coordenada Y relativa a la ventana
 global ScrollCantidad := 3               ; Clicks de scroll por ciclo
+global ScrollDelay := 500                ; Milisegundos de pausa entre cada scroll individual
 global ScrollEnPaso := 0                 ; 0=Todos, 1-7=Paso específico
 
 ; Contadores
@@ -81,7 +82,7 @@ return
 ; ============================================================================
 CrearGUI() {
     global EditVentana, EditVariacion, EditIntervalo, EditReintentos, ChkDebug, TextoEstado, LogText
-    global ChkScroll, EditScrollX, EditScrollY, EditScrollCant, DDLScrollPaso
+    global ChkScroll, EditScrollX, EditScrollY, EditScrollCant, EditScrollDelay, DDLScrollPaso
 
     ; Destruir GUI anterior si existe
     Gui, Main:Destroy
@@ -139,7 +140,10 @@ CrearGUI() {
     Gui, Main:Add, UpDown, Range1-20, 3
 
     Gui, Main:Add, Text, x25 y283 cSilver, Scroll en paso:
-    Gui, Main:Add, DropDownList, x120 y280 w340 vDDLScrollPaso Choose1, Todos los ciclos|Paso 1: Battle|Paso 2: Solo|Paso 3: Setup|Paso 4: Expert|Paso 5: Expansion|Paso 6: Auto|Paso 7: Iniciar
+    Gui, Main:Add, DropDownList, x120 y280 w195 vDDLScrollPaso Choose1, Todos los ciclos|Paso 1: Battle|Paso 2: Solo|Paso 3: Setup|Paso 4: Expert|Paso 5: Expansion|Paso 6: Auto|Paso 7: Iniciar
+    Gui, Main:Add, Text, x325 y283 cSilver, Delay (ms):
+    Gui, Main:Add, Edit, x395 y280 w60 h22 vEditScrollDelay, 500
+    Gui, Main:Add, UpDown, Range100-3000, 500
 
     Gui, Main:Font, s9 cWhite Normal
     Gui, Main:Add, Button, x25 y315 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
@@ -392,10 +396,12 @@ IniciarBot:
     GuiControlGet, EditScrollX, Main:
     GuiControlGet, EditScrollY, Main:
     GuiControlGet, EditScrollCant, Main:
+    GuiControlGet, EditScrollDelay, Main:
     ScrollActivo := ChkScroll
     ScrollRelX := RegExReplace(EditScrollX, ",", "") + 0
     ScrollRelY := RegExReplace(EditScrollY, ",", "") + 0
     ScrollCantidad := EditScrollCant
+    ScrollDelay := RegExReplace(EditScrollDelay, ",", "") + 0
 
     ; Leer paso de scroll
     GuiControlGet, DDLScrollPaso, Main:
@@ -521,14 +527,31 @@ LoopPrincipal:
         return
     }
 
-    ; Ejecutar scroll si corresponde a este paso
+    ; Scroll inteligente: buscar imagen ANTES y DESPUÉS de cada scroll individual
+    imagenEncontrada := false
     if (ScrollActivo && (ScrollEnPaso = 0 || ScrollEnPaso = PasoActual)) {
-        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
-        Sleep, 300
+        ; Buscar ANTES del primer scroll (por si ya está visible)
+        if (BuscarImagenEnVentana(imgActual, foundX, foundY)) {
+            imagenEncontrada := true
+        } else {
+            ; Hacer scroll de uno en uno, verificando después de cada uno
+            Loop, %ScrollCantidad% {
+                HacerScrollEnVentana(ScrollRelX, ScrollRelY, 1)
+                Sleep, %ScrollDelay%
+                if (BuscarImagenEnVentana(imgActual, foundX, foundY)) {
+                    imagenEncontrada := true
+                    break
+                }
+            }
+        }
+    } else {
+        ; Sin scroll: buscar directamente
+        if (BuscarImagenEnVentana(imgActual, foundX, foundY))
+            imagenEncontrada := true
     }
 
-    ; Buscar la imagen del paso actual
-    if (BuscarImagenEnVentana(imgActual, foundX, foundY)) {
+    ; Procesar resultado de la búsqueda
+    if (imagenEncontrada) {
         Log("Paso " . PasoActual . ": '" . nombreActual . "' encontrado en (" . foundX . ", " . foundY . ")")
         HacerClicEnVentana(foundX, foundY)
         ContadorAtaques++
