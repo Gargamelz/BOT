@@ -29,24 +29,38 @@ global ModoDebug := true               ; Mostrar logs en la GUI
 global CarpetaImagenes := A_ScriptDir . "\imagenes"
 
 ; Pasos de automatización (secuencia de botones a buscar y clicar)
-global TotalPasos := 7
+global TotalPasos := 12
 global PasoActual := 1
 global PasoImagenes := {}
 global PasoNombres := {}
-PasoImagenes[1] := CarpetaImagenes . "\boton_battle.bmp"
-PasoNombres[1]  := "Battle"
-PasoImagenes[2] := CarpetaImagenes . "\boton_solo.bmp"
-PasoNombres[2]  := "Solo"
-PasoImagenes[3] := CarpetaImagenes . "\boton_setup.bmp"
-PasoNombres[3]  := "Setup"
-PasoImagenes[4] := CarpetaImagenes . "\boton_expert.bmp"
-PasoNombres[4]  := "Expert"
-PasoImagenes[5] := CarpetaImagenes . "\boton_expansion.bmp"
-PasoNombres[5]  := "Expansion"
-PasoImagenes[6] := CarpetaImagenes . "\boton_auto.bmp"
-PasoNombres[6]  := "Auto"
-PasoImagenes[7] := CarpetaImagenes . "\boton_iniciar.bmp"
-PasoNombres[7]  := "Iniciar"
+PasoImagenes[1]  := CarpetaImagenes . "\boton_battle.bmp"
+PasoNombres[1]   := "Battle"
+PasoImagenes[2]  := CarpetaImagenes . "\boton_solo.bmp"
+PasoNombres[2]   := "Solo"
+PasoImagenes[3]  := CarpetaImagenes . "\boton_setup.bmp"
+PasoNombres[3]   := "Setup"
+PasoImagenes[4]  := CarpetaImagenes . "\boton_expert.bmp"
+PasoNombres[4]   := "Expert"
+PasoImagenes[5]  := CarpetaImagenes . "\boton_nivel.bmp"
+PasoNombres[5]   := "Nivel"
+PasoImagenes[6]  := CarpetaImagenes . "\boton_auto.bmp"
+PasoNombres[6]   := "Auto"
+PasoImagenes[7]  := CarpetaImagenes . "\boton_iniciar.bmp"
+PasoNombres[7]   := "Iniciar"
+PasoImagenes[8]  := ""  ; Paso especial: escanea victoria/derrota
+PasoNombres[8]   := "Resultado"
+PasoImagenes[9]  := CarpetaImagenes . "\boton_tap.bmp"
+PasoNombres[9]   := "Tap 1"
+PasoImagenes[10] := CarpetaImagenes . "\boton_tap.bmp"
+PasoNombres[10]  := "Tap 2"
+PasoImagenes[11] := CarpetaImagenes . "\boton_tap.bmp"
+PasoNombres[11]  := "Tap 3"
+PasoImagenes[12] := CarpetaImagenes . "\boton_next.bmp"
+PasoNombres[12]  := "Next"
+
+; Imágenes de resultado de batalla (usadas en paso 8)
+global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
+global IMG_DERROTA  := CarpetaImagenes . "\pantalla_derrota.bmp"
 
 ; Scroll automático
 global ScrollActivo := false
@@ -140,7 +154,7 @@ CrearGUI() {
     Gui, Main:Add, UpDown, Range1-20, 3
 
     Gui, Main:Add, Text, x25 y283 cSilver, Scroll en paso:
-    Gui, Main:Add, DropDownList, x120 y280 w195 vDDLScrollPaso Choose1, Todos los ciclos|Paso 1: Battle|Paso 2: Solo|Paso 3: Setup|Paso 4: Expert|Paso 5: Expansion|Paso 6: Auto|Paso 7: Iniciar
+    Gui, Main:Add, DropDownList, x120 y280 w195 vDDLScrollPaso Choose1, Todos los ciclos|Paso 1: Battle|Paso 2: Solo|Paso 3: Setup|Paso 4: Expert|Paso 5: Nivel|Paso 6: Auto|Paso 7: Iniciar
     Gui, Main:Add, Text, x325 y283 cSilver, Delay (ms):
     Gui, Main:Add, Edit, x395 y280 w60 h22 vEditScrollDelay, 500
     Gui, Main:Add, UpDown, Range100-3000, 500
@@ -231,23 +245,42 @@ ActualizarEstado() {
 ; ============================================================================
 VerificarImagenes() {
     global PasoImagenes, PasoNombres, TotalPasos, CarpetaImagenes
+    global IMG_VICTORIA, IMG_DERROTA
 
     faltantes := 0
     Loop, %TotalPasos% {
+        if (A_Index = 8) {
+            Log("OK: Paso 8 -> Resultado (escanea victoria/derrota)")
+            continue
+        }
         ruta := PasoImagenes[A_Index]
         nombre := PasoNombres[A_Index]
         if !FileExist(ruta) {
-            Log("AVISO: Falta imagen paso " . A_Index . " -> " . nombre . " (" . ruta . ")")
+            Log("AVISO: Falta imagen paso " . A_Index . " -> " . nombre)
             faltantes++
         } else {
             Log("OK: Paso " . A_Index . " -> " . nombre)
         }
     }
 
+    ; Verificar imágenes de resultado
+    if !FileExist(IMG_VICTORIA) {
+        Log("AVISO: Falta imagen -> pantalla_victoria.bmp")
+        faltantes++
+    } else {
+        Log("OK: pantalla_victoria.bmp")
+    }
+    if !FileExist(IMG_DERROTA) {
+        Log("AVISO: Falta imagen -> pantalla_derrota.bmp")
+        faltantes++
+    } else {
+        Log("OK: pantalla_derrota.bmp")
+    }
+
     if (faltantes > 0)
         Log("Faltan " . faltantes . " imágenes en: " . CarpetaImagenes)
     else
-        Log("Todas las imágenes (" . TotalPasos . " pasos) encontradas correctamente")
+        Log("Todas las imágenes encontradas correctamente")
 }
 
 ; ============================================================================
@@ -513,12 +546,61 @@ LoopPrincipal:
         ErroresConsecutivos := 0
     }
 
-    ; Obtener imagen y nombre del paso actual
-    imgActual := PasoImagenes[PasoActual]
     nombreActual := PasoNombres[PasoActual]
-
     EstadoActual := "Paso " . PasoActual . "/" . TotalPasos . ": " . nombreActual
     ActualizarEstado()
+
+    ; ================================================================
+    ; PASO 8 ESPECIAL: Escanear victoria O derrota
+    ; ================================================================
+    if (PasoActual = 8) {
+        resultadoDetectado := false
+
+        ; Buscar DERROTA
+        if (BuscarImagenEnVentana(IMG_DERROTA, foundX, foundY)) {
+            Log("DERROTA detectada en (" . foundX . ", " . foundY . ")")
+            HacerClicEnVentana(foundX, foundY)
+            ErroresConsecutivos := 0
+            Sleep, 1500
+            PasoActual := 9  ; Ir a Tap 1 (ruta de derrota)
+            Log(">>> Ruta derrota: avanzando a paso 9 (Tap 1)")
+            resultadoDetectado := true
+        }
+
+        ; Buscar VICTORIA (solo si no se detectó derrota)
+        if (!resultadoDetectado && BuscarImagenEnVentana(IMG_VICTORIA, foundX, foundY)) {
+            Log("VICTORIA detectada en (" . foundX . ", " . foundY . ")")
+            HacerClicEnVentana(foundX, foundY)
+            ErroresConsecutivos := 0
+            ContadorAtaques++
+            Sleep, 1500
+            ; TODO: Lógica de victoria (por ahora vuelve a paso 1)
+            PasoActual := 1
+            Log(">>> Victoria: volviendo a paso 1 (placeholder)")
+            resultadoDetectado := true
+        }
+
+        if (!resultadoDetectado) {
+            ErroresConsecutivos++
+            ContadorErrores++
+            if (Mod(ErroresConsecutivos, 10) = 0) {
+                Log("Paso 8: Esperando resultado... (" . ErroresConsecutivos . " ciclos)")
+            }
+            if (ErroresConsecutivos >= MaxErroresConsecutivos) {
+                Log("RECUPERACION: Sin resultado tras " . ErroresConsecutivos . " ciclos. Reiniciando desde paso 1...")
+                PasoActual := 1
+                ErroresConsecutivos := 0
+            }
+        }
+
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASOS NORMALES (1-7, 9-12): Buscar imagen y clicar
+    ; ================================================================
+    imgActual := PasoImagenes[PasoActual]
 
     ; Verificar que el archivo de imagen exista
     if !FileExist(imgActual) {
@@ -528,6 +610,7 @@ LoopPrincipal:
     }
 
     ; Scroll inteligente: buscar imagen ANTES y DESPUÉS de cada scroll individual
+    ; (solo aplica a pasos 1-7 donde se configura scroll)
     imagenEncontrada := false
     if (ScrollActivo && (ScrollEnPaso = 0 || ScrollEnPaso = PasoActual)) {
         ; Buscar ANTES del primer scroll (por si ya está visible)
@@ -555,12 +638,18 @@ LoopPrincipal:
         Log("Paso " . PasoActual . ": '" . nombreActual . "' encontrado en (" . foundX . ", " . foundY . ")")
         HacerClicEnVentana(foundX, foundY)
         ContadorAtaques++
-        ErroresConsecutivos := 0  ; Resetear contador de errores al tener éxito
+        ErroresConsecutivos := 0
         Sleep, 1500
 
-        ; Avanzar al siguiente paso (volver al 1 después del último)
-        PasoActual := (PasoActual >= TotalPasos) ? 1 : PasoActual + 1
-        Log(">>> Avanzando a paso " . PasoActual . ": " . PasoNombres[PasoActual])
+        ; Avanzar al siguiente paso con lógica de salto
+        if (PasoActual = 12) {
+            ; Después de Next (fin de ruta derrota) -> volver a Nivel
+            PasoActual := 5
+            Log(">>> Ciclo derrota completado. Volviendo a paso 5: " . PasoNombres[5])
+        } else {
+            PasoActual := PasoActual + 1
+            Log(">>> Avanzando a paso " . PasoActual . ": " . PasoNombres[PasoActual])
+        }
     } else {
         ErroresConsecutivos++
         ContadorErrores++

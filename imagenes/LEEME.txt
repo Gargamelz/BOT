@@ -5,10 +5,16 @@
 Aqui debes colocar las capturas de pantalla (screenshots) de
 los botones del juego que el bot necesita buscar y clicar.
 
-El bot ejecuta estos pasos en secuencia (1 -> 2 -> ... -> 7 -> 1):
+Flujo del bot:
+  Pasos 1-7: Preparar batalla (secuencial)
+  Paso 8:    Esperar resultado (escanea victoria/derrota)
+  Derrota:   Pasos 9-12 (tap x3 + next) -> vuelve a paso 5 (nivel)
+  Victoria:  Placeholder (vuelve a paso 1 por ahora)
 
 IMAGENES NECESARIAS (formato BMP recomendado):
 ------------------------------------------------------------
+
+--- PREPARACION (pasos 1-7) ---
 
 1. boton_battle.bmp
    -> Boton "Battle" para entrar a la seleccion de batalla
@@ -22,14 +28,30 @@ IMAGENES NECESARIAS (formato BMP recomendado):
 4. boton_expert.bmp
    -> Boton "Expert" para seleccionar dificultad
 
-5. boton_expansion.bmp
-   -> Boton "Expansion" para seleccionar expansion
+5. boton_nivel.bmp
+   -> Boton de seleccion de nivel
 
 6. boton_auto.bmp
    -> Boton "Auto" para activar modo automatico
 
 7. boton_iniciar.bmp
    -> Boton "Iniciar" para confirmar e iniciar la batalla
+
+--- RESULTADO (paso 8 - el bot busca ambas) ---
+
+8a. pantalla_victoria.bmp
+    -> Captura de la pantalla de victoria
+
+8b. pantalla_derrota.bmp
+    -> Captura de la pantalla de derrota
+
+--- RUTA DERROTA (pasos 9-12) ---
+
+9/10/11. boton_tap.bmp  (UN solo archivo, se usa 3 veces)
+    -> Captura del texto "Tap to proceed"
+
+12. boton_next.bmp
+    -> Boton "Next" despues de los taps
 
 
 COMO HACER LAS CAPTURAS:
