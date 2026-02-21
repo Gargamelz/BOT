@@ -651,16 +651,23 @@ HacerClicEnVentana(screenX, screenY) {
 ; ============================================================================
 ; FUNCIÓN: Hacer scroll en la ventana en coordenadas relativas
 ; Usa WM_MOUSEWHEEL (0x20A) via PostMessage para funcionar en segundo plano
+; Las coordenadas se convierten a pantalla en cada llamada para que funcione
+; aunque la ventana se haya movido
 ; ============================================================================
 HacerScrollEnVentana(relX, relY, cantidad) {
     global VentanaObjetivo
 
+    ; Obtener posición actual de la ventana para convertir a coordenadas de pantalla
+    WinGetPos, wx, wy,,, %VentanaObjetivo%
+    screenX := relX + wx
+    screenY := relY + wy
+
     ; WM_MOUSEWHEEL = 0x20A
     ; wParam alto: delta (-120 por click hacia abajo)
-    ; lParam: posición del cursor (relativa al cliente)
+    ; lParam: posición del cursor en coordenadas de pantalla
     wheelDelta := -120 * cantidad
     wParam := (wheelDelta << 16) & 0xFFFFFFFF
-    lParam := ((relY & 0xFFFF) << 16) | (relX & 0xFFFF)
+    lParam := ((screenY & 0xFFFF) << 16) | (screenX & 0xFFFF)
 
     PostMessage, 0x20A, %wParam%, %lParam%,, %VentanaObjetivo%
 
