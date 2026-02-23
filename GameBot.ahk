@@ -219,8 +219,9 @@ Log(mensaje) {
 
     GuiControl, Main:, LogText, %nuevo%
 
-    ; Auto-scroll al final
-    ControlSend, Edit2, ^{End}, Game Bot - AutoHotkey v1.1
+    ; Auto-scroll al final (WM_VSCROLL + SB_BOTTOM)
+    GuiControlGet, hLogCtrl, Main:Hwnd, LogText
+    SendMessage, 0x0115, 7, 0,, ahk_id %hLogCtrl%
 }
 
 ; ============================================================================
