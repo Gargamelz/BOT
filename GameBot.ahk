@@ -552,45 +552,55 @@ LoopPrincipal:
 
     ; ================================================================
     ; PASO 8 ESPECIAL: Escanear victoria O derrota
+    ; 15 intentos con 10 segundos entre cada uno
     ; ================================================================
     if (PasoActual = 8) {
         resultadoDetectado := false
+        Log("Paso 8: Buscando resultado de batalla (15 intentos, 10s entre cada uno)...")
 
-        ; Buscar DERROTA
-        if (BuscarImagenEnVentana(IMG_DERROTA, foundX, foundY)) {
-            Log("DERROTA detectada en (" . foundX . ", " . foundY . ")")
-            HacerClicEnVentana(foundX, foundY)
-            ErroresConsecutivos := 0
-            Sleep, 1500
-            PasoActual := 9  ; Ir a Tap 1 (ruta de derrota)
-            Log(">>> Ruta derrota: avanzando a paso 9 (Tap 1)")
-            resultadoDetectado := true
-        }
+        Loop, 15 {
+            intentoNum := A_Index
 
-        ; Buscar VICTORIA (solo si no se detectó derrota)
-        if (!resultadoDetectado && BuscarImagenEnVentana(IMG_VICTORIA, foundX, foundY)) {
-            Log("VICTORIA detectada en (" . foundX . ", " . foundY . ")")
-            HacerClicEnVentana(foundX, foundY)
-            ErroresConsecutivos := 0
-            ContadorAtaques++
-            Sleep, 1500
-            ; TODO: Lógica de victoria (por ahora vuelve a paso 1)
-            PasoActual := 1
-            Log(">>> Victoria: volviendo a paso 1 (placeholder)")
-            resultadoDetectado := true
+            ; Verificar que el bot siga activo (el usuario pudo detenerlo)
+            if (!BotActivo || BotPausado)
+                return
+
+            ; Buscar DERROTA (solo detectar, NO hacer clic)
+            if (BuscarImagenEnVentana(IMG_DERROTA, foundX, foundY)) {
+                Log("DERROTA detectada en intento " . intentoNum . "/15")
+                ErroresConsecutivos := 0
+                PasoActual := 9
+                Log(">>> Ruta derrota: avanzando a paso 9 (Tap 1)")
+                resultadoDetectado := true
+                break
+            }
+
+            ; Buscar VICTORIA
+            if (BuscarImagenEnVentana(IMG_VICTORIA, foundX, foundY)) {
+                Log("VICTORIA detectada en intento " . intentoNum . "/15")
+                HacerClicEnVentana(foundX, foundY)
+                ErroresConsecutivos := 0
+                ContadorAtaques++
+                Sleep, 1500
+                ; TODO: Lógica de victoria (por ahora vuelve a paso 1)
+                PasoActual := 1
+                Log(">>> Victoria: volviendo a paso 1 (placeholder)")
+                resultadoDetectado := true
+                break
+            }
+
+            ; Si no es el último intento, esperar 10 segundos
+            if (intentoNum < 15) {
+                EstadoActual := "Paso 8: Esperando resultado... (" . intentoNum . "/15)"
+                ActualizarEstado()
+                Sleep, 10000
+            }
         }
 
         if (!resultadoDetectado) {
-            ErroresConsecutivos++
-            ContadorErrores++
-            if (Mod(ErroresConsecutivos, 10) = 0) {
-                Log("Paso 8: Esperando resultado... (" . ErroresConsecutivos . " ciclos)")
-            }
-            if (ErroresConsecutivos >= MaxErroresConsecutivos) {
-                Log("RECUPERACION: Sin resultado tras " . ErroresConsecutivos . " ciclos. Reiniciando desde paso 1...")
-                PasoActual := 1
-                ErroresConsecutivos := 0
-            }
+            Log("RECUPERACION: Sin resultado tras 15 intentos (150s). Reiniciando desde paso 1...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
         }
 
         ActualizarEstado()
