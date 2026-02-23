@@ -29,7 +29,7 @@ global ModoDebug := true               ; Mostrar logs en la GUI
 global CarpetaImagenes := A_ScriptDir . "\imagenes"
 
 ; Pasos de automatización (secuencia de botones a buscar y clicar)
-global TotalPasos := 12
+global TotalPasos := 11
 global PasoActual := 1
 global PasoImagenes := {}
 global PasoNombres := {}
@@ -53,10 +53,8 @@ PasoImagenes[9]  := CarpetaImagenes . "\boton_tap.bmp"
 PasoNombres[9]   := "Tap 1"
 PasoImagenes[10] := CarpetaImagenes . "\boton_tap.bmp"
 PasoNombres[10]  := "Tap 2"
-PasoImagenes[11] := CarpetaImagenes . "\boton_tap.bmp"
-PasoNombres[11]  := "Tap 3"
-PasoImagenes[12] := CarpetaImagenes . "\boton_next.bmp"
-PasoNombres[12]  := "Next"
+PasoImagenes[11] := CarpetaImagenes . "\boton_next.bmp"
+PasoNombres[11]  := "Next"
 
 ; Imágenes de resultado de batalla (usadas en paso 8)
 global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
@@ -78,6 +76,9 @@ global ContadorErrores := 0
 ; Anti-atasco: errores consecutivos en el mismo paso
 global ErroresConsecutivos := 0          ; Errores seguidos en el paso actual
 global MaxErroresConsecutivos := 30      ; Limite antes de intentar recuperación
+
+; Paso 8: contador de intentos (máquina de estados, no-bloqueante)
+global ResultadoIntentos := 0
 
 ; ============================================================================
 ; CREAR CARPETA DE IMÁGENES SI NO EXISTE
@@ -469,6 +470,7 @@ IniciarBot:
     ContadorAtaques := 0
     ContadorErrores := 0
     ErroresConsecutivos := 0
+    ResultadoIntentos := 0
     Log("=== BOT INICIADO ===")
     Log("Ventana: " . VentanaObjetivo)
     Log("Variación: " . Variacion . " | Intervalo: " . IntervaloLoop . "ms | Reintentos: " . MaxReintentos)
@@ -502,6 +504,7 @@ DetenerBot:
     BotActivo := false
     BotPausado := false
     EstadoActual := "IDLE"
+    ResultadoIntentos := 0
     SetTimer, LoopPrincipal, Off
     Log("=== BOT DETENIDO ===")
     ActualizarEstado()
@@ -553,55 +556,54 @@ LoopPrincipal:
 
     ; ================================================================
     ; PASO 8 ESPECIAL: Escanear victoria O derrota
-    ; 15 intentos con 10 segundos entre cada uno
+    ; 15 intentos con 10 segundos entre cada uno (NO-BLOQUEANTE)
+    ; Cada tick del timer hace UN solo intento y retorna
     ; ================================================================
     if (PasoActual = 8) {
-        resultadoDetectado := false
-        Log("Paso 8: Buscando resultado de batalla (15 intentos, 10s entre cada uno)...")
+        ResultadoIntentos++
 
-        Loop, 15 {
-            intentoNum := A_Index
-
-            ; Verificar que el bot siga activo (el usuario pudo detenerlo)
-            if (!BotActivo || BotPausado)
-                return
-
-            ; Buscar DERROTA (solo detectar, NO hacer clic)
-            if (BuscarImagenEnVentana(IMG_DERROTA, foundX, foundY)) {
-                Log("DERROTA detectada en intento " . intentoNum . "/15")
-                ErroresConsecutivos := 0
-                PasoActual := 9
-                Log(">>> Ruta derrota: avanzando a paso 9 (Tap 1)")
-                resultadoDetectado := true
-                break
-            }
-
-            ; Buscar VICTORIA
-            if (BuscarImagenEnVentana(IMG_VICTORIA, foundX, foundY)) {
-                Log("VICTORIA detectada en intento " . intentoNum . "/15")
-                HacerClicEnVentana(foundX, foundY)
-                ErroresConsecutivos := 0
-                ContadorAtaques++
-                Sleep, 1500
-                ; TODO: Lógica de victoria (por ahora vuelve a paso 1)
-                PasoActual := 1
-                Log(">>> Victoria: volviendo a paso 1 (placeholder)")
-                resultadoDetectado := true
-                break
-            }
-
-            ; Si no es el último intento, esperar 10 segundos
-            if (intentoNum < 15) {
-                EstadoActual := "Paso 8: Esperando resultado... (" . intentoNum . "/15)"
-                ActualizarEstado()
-                Sleep, 10000
-            }
+        ; Primera vez: cambiar timer a 10s y logear
+        if (ResultadoIntentos = 1) {
+            Log("Paso 8: Buscando resultado de batalla (15 intentos, 10s entre cada uno)...")
+            SetTimer, LoopPrincipal, 10000
         }
 
-        if (!resultadoDetectado) {
+        EstadoActual := "Paso 8: Esperando resultado... (" . ResultadoIntentos . "/15)"
+        ActualizarEstado()
+
+        ; Buscar DERROTA (solo detectar, NO hacer clic)
+        if (BuscarImagenEnVentana(IMG_DERROTA, foundX, foundY)) {
+            Log("DERROTA detectada en intento " . ResultadoIntentos . "/15")
+            ErroresConsecutivos := 0
+            ResultadoIntentos := 0
+            PasoActual := 9
+            Log(">>> Ruta derrota: avanzando a paso 9 (Tap 1)")
+            SetTimer, LoopPrincipal, %IntervaloLoop%
+            ActualizarEstado()
+            return
+        }
+
+        ; Buscar VICTORIA
+        if (BuscarImagenEnVentana(IMG_VICTORIA, foundX, foundY)) {
+            Log("VICTORIA detectada en intento " . ResultadoIntentos . "/15")
+            HacerClicEnVentana(foundX, foundY)
+            ErroresConsecutivos := 0
+            ContadorAtaques++
+            ResultadoIntentos := 0
+            PasoActual := 1
+            Log(">>> Victoria: volviendo a paso 1")
+            SetTimer, LoopPrincipal, %IntervaloLoop%
+            ActualizarEstado()
+            return
+        }
+
+        ; Si se agotaron los 15 intentos sin resultado
+        if (ResultadoIntentos >= 15) {
             Log("RECUPERACION: Sin resultado tras 15 intentos (150s). Reiniciando desde paso 1...")
             PasoActual := 1
             ErroresConsecutivos := 0
+            ResultadoIntentos := 0
+            SetTimer, LoopPrincipal, %IntervaloLoop%
         }
 
         ActualizarEstado()
@@ -609,7 +611,7 @@ LoopPrincipal:
     }
 
     ; ================================================================
-    ; PASOS NORMALES (1-7, 9-12): Buscar imagen y clicar
+    ; PASOS NORMALES (1-7, 9-11): Buscar imagen y clicar
     ; ================================================================
     imgActual := PasoImagenes[PasoActual]
 
@@ -653,7 +655,7 @@ LoopPrincipal:
         Sleep, 1500
 
         ; Avanzar al siguiente paso con lógica de salto
-        if (PasoActual = 12) {
+        if (PasoActual = 11) {
             ; Después de Next (fin de ruta derrota) -> volver a Nivel
             PasoActual := 5
             Log(">>> Ciclo derrota completado. Volviendo a paso 5: " . PasoNombres[5])
