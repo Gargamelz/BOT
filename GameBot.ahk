@@ -27,6 +27,7 @@ global IntervaloLoop := 1000           ; Milisegundos entre cada ciclo
 global MaxReintentos := 5              ; Reintentos antes de cambiar estrategia
 global ModoDebug := true               ; Mostrar logs en la GUI
 global CarpetaImagenes := A_ScriptDir . "\imagenes"
+global ArchivoConfig := A_ScriptDir . "\config.ini"
 
 ; Ajuste de ventana (resolución objetivo para ImageSearch)
 global VentanaAncho := 960              ; Ancho objetivo en píxeles
@@ -92,10 +93,111 @@ if !FileExist(CarpetaImagenes)
     FileCreateDir, %CarpetaImagenes%
 
 ; ============================================================================
-; INTERFAZ GRÁFICA (GUI)
+; CARGAR CONFIGURACIÓN GUARDADA Y CREAR GUI
 ; ============================================================================
+CargarConfig()
 CrearGUI()
 return
+
+; ============================================================================
+; FUNCIÓN: Guardar configuración en archivo INI
+; ============================================================================
+GuardarConfig() {
+    global ArchivoConfig, VentanaObjetivo, Variacion, IntervaloLoop, MaxReintentos, ModoDebug
+    global VentanaAncho, VentanaAlto, AutoAjustar
+    global ScrollActivo, ScrollRelX, ScrollRelY, ScrollCantidad, ScrollDelay, ScrollEnPaso
+
+    ; Leer valores actuales de la GUI (por si el usuario cambió algo sin iniciar el bot)
+    GuiControlGet, tmpVariacion, Main:, EditVariacion
+    GuiControlGet, tmpIntervalo, Main:, EditIntervalo
+    GuiControlGet, tmpReintentos, Main:, EditReintentos
+    GuiControlGet, tmpDebug, Main:, ChkDebug
+    GuiControlGet, tmpAncho, Main:, EditVentanaAncho
+    GuiControlGet, tmpAlto, Main:, EditVentanaAlto
+    GuiControlGet, tmpAutoAjustar, Main:, ChkAutoAjustar
+    GuiControlGet, tmpScroll, Main:, ChkScroll
+    GuiControlGet, tmpScrollX, Main:, EditScrollX
+    GuiControlGet, tmpScrollY, Main:, EditScrollY
+    GuiControlGet, tmpScrollCant, Main:, EditScrollCant
+    GuiControlGet, tmpScrollDelay, Main:, EditScrollDelay
+    GuiControlGet, tmpScrollPaso, Main:, DDLScrollPaso
+
+    ; Calcular índice del paso de scroll
+    tmpScrollEnPaso := 0
+    Loop, 7 {
+        if InStr(tmpScrollPaso, "Paso " . A_Index) {
+            tmpScrollEnPaso := A_Index
+            break
+        }
+    }
+
+    ; Sección General
+    IniWrite, %VentanaObjetivo%, %ArchivoConfig%, General, VentanaObjetivo
+    IniWrite, %tmpVariacion%, %ArchivoConfig%, General, Variacion
+    IniWrite, %tmpIntervalo%, %ArchivoConfig%, General, IntervaloLoop
+    IniWrite, %tmpReintentos%, %ArchivoConfig%, General, MaxReintentos
+    IniWrite, %tmpDebug%, %ArchivoConfig%, General, ModoDebug
+
+    ; Sección Ventana
+    IniWrite, %tmpAncho%, %ArchivoConfig%, Ventana, VentanaAncho
+    IniWrite, %tmpAlto%, %ArchivoConfig%, Ventana, VentanaAlto
+    IniWrite, %tmpAutoAjustar%, %ArchivoConfig%, Ventana, AutoAjustar
+
+    ; Sección Scroll
+    IniWrite, %tmpScroll%, %ArchivoConfig%, Scroll, ScrollActivo
+    IniWrite, %tmpScrollX%, %ArchivoConfig%, Scroll, ScrollRelX
+    IniWrite, %tmpScrollY%, %ArchivoConfig%, Scroll, ScrollRelY
+    IniWrite, %tmpScrollCant%, %ArchivoConfig%, Scroll, ScrollCantidad
+    IniWrite, %tmpScrollDelay%, %ArchivoConfig%, Scroll, ScrollDelay
+    IniWrite, %tmpScrollEnPaso%, %ArchivoConfig%, Scroll, ScrollEnPaso
+}
+
+; ============================================================================
+; FUNCIÓN: Cargar configuración desde archivo INI
+; ============================================================================
+CargarConfig() {
+    global ArchivoConfig, VentanaObjetivo, Variacion, IntervaloLoop, MaxReintentos, ModoDebug
+    global VentanaAncho, VentanaAlto, AutoAjustar
+    global ScrollActivo, ScrollRelX, ScrollRelY, ScrollCantidad, ScrollDelay, ScrollEnPaso
+
+    ; Si no existe el archivo, usar los valores por defecto (ya definidos en variables globales)
+    if !FileExist(ArchivoConfig)
+        return
+
+    ; Sección General
+    IniRead, tmp, %ArchivoConfig%, General, VentanaObjetivo, %VentanaObjetivo%
+    VentanaObjetivo := tmp
+    IniRead, tmp, %ArchivoConfig%, General, Variacion, %Variacion%
+    Variacion := tmp + 0
+    IniRead, tmp, %ArchivoConfig%, General, IntervaloLoop, %IntervaloLoop%
+    IntervaloLoop := tmp + 0
+    IniRead, tmp, %ArchivoConfig%, General, MaxReintentos, %MaxReintentos%
+    MaxReintentos := tmp + 0
+    IniRead, tmp, %ArchivoConfig%, General, ModoDebug, %ModoDebug%
+    ModoDebug := tmp + 0
+
+    ; Sección Ventana
+    IniRead, tmp, %ArchivoConfig%, Ventana, VentanaAncho, %VentanaAncho%
+    VentanaAncho := tmp + 0
+    IniRead, tmp, %ArchivoConfig%, Ventana, VentanaAlto, %VentanaAlto%
+    VentanaAlto := tmp + 0
+    IniRead, tmp, %ArchivoConfig%, Ventana, AutoAjustar, %AutoAjustar%
+    AutoAjustar := tmp + 0
+
+    ; Sección Scroll
+    IniRead, tmp, %ArchivoConfig%, Scroll, ScrollActivo, %ScrollActivo%
+    ScrollActivo := tmp + 0
+    IniRead, tmp, %ArchivoConfig%, Scroll, ScrollRelX, %ScrollRelX%
+    ScrollRelX := tmp + 0
+    IniRead, tmp, %ArchivoConfig%, Scroll, ScrollRelY, %ScrollRelY%
+    ScrollRelY := tmp + 0
+    IniRead, tmp, %ArchivoConfig%, Scroll, ScrollCantidad, %ScrollCantidad%
+    ScrollCantidad := tmp + 0
+    IniRead, tmp, %ArchivoConfig%, Scroll, ScrollDelay, %ScrollDelay%
+    ScrollDelay := tmp + 0
+    IniRead, tmp, %ArchivoConfig%, Scroll, ScrollEnPaso, %ScrollEnPaso%
+    ScrollEnPaso := tmp + 0
+}
 
 ; ============================================================================
 ; FUNCIÓN: Crear la interfaz gráfica principal
@@ -104,6 +206,9 @@ CrearGUI() {
     global EditVentana, EditVariacion, EditIntervalo, EditReintentos, ChkDebug, TextoEstado, LogText
     global ChkScroll, EditScrollX, EditScrollY, EditScrollCant, EditScrollDelay, DDLScrollPaso
     global EditVentanaAncho, EditVentanaAlto, ChkAutoAjustar
+    global VentanaObjetivo, Variacion, IntervaloLoop, MaxReintentos, ModoDebug
+    global VentanaAncho, VentanaAlto, AutoAjustar
+    global ScrollActivo, ScrollRelX, ScrollRelY, ScrollCantidad, ScrollDelay, ScrollEnPaso
 
     ; Destruir GUI anterior si existe
     Gui, Main:Destroy
@@ -119,7 +224,8 @@ CrearGUI() {
     Gui, Main:Font, s9 cSilver Normal
     Gui, Main:Add, Text, x25 y35, Ventana objetivo:
     Gui, Main:Font, s9 c0x00FF88
-    Gui, Main:Add, Edit, x130 y32 w220 h22 vEditVentana ReadOnly, (ninguna seleccionada)
+    ventanaTexto := (VentanaObjetivo != "") ? VentanaObjetivo : "(ninguna seleccionada)"
+    Gui, Main:Add, Edit, x130 y32 w220 h22 vEditVentana ReadOnly, %ventanaTexto%
 
     Gui, Main:Font, s9 cWhite Normal
     Gui, Main:Add, Button, x360 y30 w100 h25 gDetectarVentana, DETECTAR (clic)
@@ -133,13 +239,14 @@ CrearGUI() {
 
     Gui, Main:Font, s9 cSilver Normal
     Gui, Main:Add, Text, x25 y145, Ancho:
-    Gui, Main:Add, Edit, x70 y142 w60 h22 vEditVentanaAncho, 960
+    Gui, Main:Add, Edit, x70 y142 w60 h22 vEditVentanaAncho, %VentanaAncho%
     Gui, Main:Add, Text, x140 y145, Alto:
-    Gui, Main:Add, Edit, x175 y142 w60 h22 vEditVentanaAlto, 540
+    Gui, Main:Add, Edit, x175 y142 w60 h22 vEditVentanaAlto, %VentanaAlto%
     Gui, Main:Font, s9 cWhite Normal
     Gui, Main:Add, Button, x250 y140 w105 h25 gAjustarVentana, Ajustar Ventana
     Gui, Main:Add, Button, x360 y140 w100 h25 gConsultarTamano, Ver Actual
-    Gui, Main:Add, CheckBox, x25 y168 vChkAutoAjustar cWhite, Auto-ajustar al iniciar bot
+    chkAutoVal := AutoAjustar ? "Checked" : ""
+    Gui, Main:Add, CheckBox, x25 y168 vChkAutoAjustar %chkAutoVal% cWhite, Auto-ajustar al iniciar bot
 
     ; --- SECCIÓN: Configuración ---
     Gui, Main:Font, s10 cWhite Bold
@@ -147,38 +254,41 @@ CrearGUI() {
 
     Gui, Main:Font, s9 cSilver Normal
     Gui, Main:Add, Text, x25 y225, Variación (tolerancia):
-    Gui, Main:Add, Edit, x170 y222 w50 h22 vEditVariacion, 50
-    Gui, Main:Add, UpDown, Range0-255, 50
+    Gui, Main:Add, Edit, x170 y222 w50 h22 vEditVariacion, %Variacion%
+    Gui, Main:Add, UpDown, Range0-255, %Variacion%
 
     Gui, Main:Add, Text, x240 y225, Intervalo (ms):
-    Gui, Main:Add, Edit, x360 y222 w80 h22 vEditIntervalo, 1000
-    Gui, Main:Add, UpDown, Range100-10000, 1000
+    Gui, Main:Add, Edit, x360 y222 w80 h22 vEditIntervalo, %IntervaloLoop%
+    Gui, Main:Add, UpDown, Range100-10000, %IntervaloLoop%
 
     Gui, Main:Add, Text, x25 y255, Max reintentos:
-    Gui, Main:Add, Edit, x170 y252 w50 h22 vEditReintentos, 5
-    Gui, Main:Add, UpDown, Range1-50, 5
+    Gui, Main:Add, Edit, x170 y252 w50 h22 vEditReintentos, %MaxReintentos%
+    Gui, Main:Add, UpDown, Range1-50, %MaxReintentos%
 
-    Gui, Main:Add, CheckBox, x240 y255 vChkDebug Checked cWhite, Modo Debug (logs visibles)
+    chkDebugVal := ModoDebug ? "Checked" : ""
+    Gui, Main:Add, CheckBox, x240 y255 vChkDebug %chkDebugVal% cWhite, Modo Debug (logs visibles)
 
     ; --- SECCIÓN: Scroll Automático ---
     Gui, Main:Font, s10 cWhite Bold
     Gui, Main:Add, GroupBox, x10 y310 w460 h120, SCROLL AUTOMÁTICO
 
     Gui, Main:Font, s9 cSilver Normal
-    Gui, Main:Add, CheckBox, x25 y335 vChkScroll cWhite, Activar scroll
+    chkScrollVal := ScrollActivo ? "Checked" : ""
+    Gui, Main:Add, CheckBox, x25 y335 vChkScroll %chkScrollVal% cWhite, Activar scroll
     Gui, Main:Add, Text, x150 y336 cSilver, X (rel):
-    Gui, Main:Add, Edit, x195 y333 w55 h22 vEditScrollX, 200
+    Gui, Main:Add, Edit, x195 y333 w55 h22 vEditScrollX, %ScrollRelX%
     Gui, Main:Add, Text, x260 y336 cSilver, Y (rel):
-    Gui, Main:Add, Edit, x305 y333 w55 h22 vEditScrollY, 300
+    Gui, Main:Add, Edit, x305 y333 w55 h22 vEditScrollY, %ScrollRelY%
     Gui, Main:Add, Text, x370 y336 cSilver, Clicks:
-    Gui, Main:Add, Edit, x415 y333 w45 h22 vEditScrollCant, 3
-    Gui, Main:Add, UpDown, Range1-20, 3
+    Gui, Main:Add, Edit, x415 y333 w45 h22 vEditScrollCant, %ScrollCantidad%
+    Gui, Main:Add, UpDown, Range1-20, %ScrollCantidad%
 
     Gui, Main:Add, Text, x25 y363 cSilver, Scroll en paso:
-    Gui, Main:Add, DropDownList, x120 y360 w195 vDDLScrollPaso Choose1, Todos los ciclos|Paso 1: Battle|Paso 2: Solo|Paso 3: Setup|Paso 4: Expert|Paso 5: Nivel|Paso 6: Auto|Paso 7: Iniciar
+    scrollPasoIndice := ScrollEnPaso + 1
+    Gui, Main:Add, DropDownList, x120 y360 w195 vDDLScrollPaso Choose%scrollPasoIndice%, Todos los ciclos|Paso 1: Battle|Paso 2: Solo|Paso 3: Setup|Paso 4: Expert|Paso 5: Nivel|Paso 6: Auto|Paso 7: Iniciar
     Gui, Main:Add, Text, x325 y363 cSilver, Delay (ms):
-    Gui, Main:Add, Edit, x395 y360 w60 h22 vEditScrollDelay, 500
-    Gui, Main:Add, UpDown, Range100-3000, 500
+    Gui, Main:Add, Edit, x395 y360 w60 h22 vEditScrollDelay, %ScrollDelay%
+    Gui, Main:Add, UpDown, Range100-3000, %ScrollDelay%
 
     Gui, Main:Font, s9 cWhite Normal
     Gui, Main:Add, Button, x25 y395 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
@@ -979,6 +1089,7 @@ MainGuiEscape:
     IfMsgBox, Yes
     {
         SetTimer, LoopPrincipal, Off
+        GuardarConfig()
         ExitApp
     }
 return
