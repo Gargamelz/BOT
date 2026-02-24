@@ -28,6 +28,11 @@ global MaxReintentos := 5              ; Reintentos antes de cambiar estrategia
 global ModoDebug := true               ; Mostrar logs en la GUI
 global CarpetaImagenes := A_ScriptDir . "\imagenes"
 
+; Ajuste de ventana (resolución objetivo para ImageSearch)
+global VentanaAncho := 960              ; Ancho objetivo en píxeles
+global VentanaAlto := 540               ; Alto objetivo en píxeles
+global AutoAjustar := false             ; Ajustar automáticamente al iniciar el bot
+
 ; Pasos de automatización (secuencia de botones a buscar y clicar)
 global TotalPasos := 11
 global PasoActual := 1
@@ -98,6 +103,7 @@ return
 CrearGUI() {
     global EditVentana, EditVariacion, EditIntervalo, EditReintentos, ChkDebug, TextoEstado, LogText
     global ChkScroll, EditScrollX, EditScrollY, EditScrollCant, EditScrollDelay, DDLScrollPaso
+    global EditVentanaAncho, EditVentanaAlto, ChkAutoAjustar
 
     ; Destruir GUI anterior si existe
     Gui, Main:Destroy
@@ -121,74 +127,88 @@ CrearGUI() {
     Gui, Main:Add, Button, x175 y65 w140 h30 gEscribirVentana, Escribir Título
     Gui, Main:Add, Button, x325 y65 w135 h30 gVerificarVentana, Verificar Ventana
 
-    ; --- SECCIÓN: Configuración ---
+    ; --- SECCIÓN: Ajuste de Ventana ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y120 w460 h100, CONFIGURACIÓN
+    Gui, Main:Add, GroupBox, x10 y120 w460 h70, AJUSTE DE VENTANA (RESOLUCIÓN)
 
     Gui, Main:Font, s9 cSilver Normal
-    Gui, Main:Add, Text, x25 y145, Variación (tolerancia):
-    Gui, Main:Add, Edit, x170 y142 w50 h22 vEditVariacion, 50
+    Gui, Main:Add, Text, x25 y145, Ancho:
+    Gui, Main:Add, Edit, x70 y142 w60 h22 vEditVentanaAncho, 960
+    Gui, Main:Add, Text, x140 y145, Alto:
+    Gui, Main:Add, Edit, x175 y142 w60 h22 vEditVentanaAlto, 540
+    Gui, Main:Font, s9 cWhite Normal
+    Gui, Main:Add, Button, x250 y140 w105 h25 gAjustarVentana, Ajustar Ventana
+    Gui, Main:Add, Button, x360 y140 w100 h25 gConsultarTamano, Ver Actual
+    Gui, Main:Add, CheckBox, x25 y168 vChkAutoAjustar cWhite, Auto-ajustar al iniciar bot
+
+    ; --- SECCIÓN: Configuración ---
+    Gui, Main:Font, s10 cWhite Bold
+    Gui, Main:Add, GroupBox, x10 y200 w460 h100, CONFIGURACIÓN
+
+    Gui, Main:Font, s9 cSilver Normal
+    Gui, Main:Add, Text, x25 y225, Variación (tolerancia):
+    Gui, Main:Add, Edit, x170 y222 w50 h22 vEditVariacion, 50
     Gui, Main:Add, UpDown, Range0-255, 50
 
-    Gui, Main:Add, Text, x240 y145, Intervalo (ms):
-    Gui, Main:Add, Edit, x360 y142 w80 h22 vEditIntervalo, 1000
+    Gui, Main:Add, Text, x240 y225, Intervalo (ms):
+    Gui, Main:Add, Edit, x360 y222 w80 h22 vEditIntervalo, 1000
     Gui, Main:Add, UpDown, Range100-10000, 1000
 
-    Gui, Main:Add, Text, x25 y175, Max reintentos:
-    Gui, Main:Add, Edit, x170 y172 w50 h22 vEditReintentos, 5
+    Gui, Main:Add, Text, x25 y255, Max reintentos:
+    Gui, Main:Add, Edit, x170 y252 w50 h22 vEditReintentos, 5
     Gui, Main:Add, UpDown, Range1-50, 5
 
-    Gui, Main:Add, CheckBox, x240 y175 vChkDebug Checked cWhite, Modo Debug (logs visibles)
+    Gui, Main:Add, CheckBox, x240 y255 vChkDebug Checked cWhite, Modo Debug (logs visibles)
 
     ; --- SECCIÓN: Scroll Automático ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y230 w460 h120, SCROLL AUTOMÁTICO
+    Gui, Main:Add, GroupBox, x10 y310 w460 h120, SCROLL AUTOMÁTICO
 
     Gui, Main:Font, s9 cSilver Normal
-    Gui, Main:Add, CheckBox, x25 y255 vChkScroll cWhite, Activar scroll
-    Gui, Main:Add, Text, x150 y256 cSilver, X (rel):
-    Gui, Main:Add, Edit, x195 y253 w55 h22 vEditScrollX, 200
-    Gui, Main:Add, Text, x260 y256 cSilver, Y (rel):
-    Gui, Main:Add, Edit, x305 y253 w55 h22 vEditScrollY, 300
-    Gui, Main:Add, Text, x370 y256 cSilver, Clicks:
-    Gui, Main:Add, Edit, x415 y253 w45 h22 vEditScrollCant, 3
+    Gui, Main:Add, CheckBox, x25 y335 vChkScroll cWhite, Activar scroll
+    Gui, Main:Add, Text, x150 y336 cSilver, X (rel):
+    Gui, Main:Add, Edit, x195 y333 w55 h22 vEditScrollX, 200
+    Gui, Main:Add, Text, x260 y336 cSilver, Y (rel):
+    Gui, Main:Add, Edit, x305 y333 w55 h22 vEditScrollY, 300
+    Gui, Main:Add, Text, x370 y336 cSilver, Clicks:
+    Gui, Main:Add, Edit, x415 y333 w45 h22 vEditScrollCant, 3
     Gui, Main:Add, UpDown, Range1-20, 3
 
-    Gui, Main:Add, Text, x25 y283 cSilver, Scroll en paso:
-    Gui, Main:Add, DropDownList, x120 y280 w195 vDDLScrollPaso Choose1, Todos los ciclos|Paso 1: Battle|Paso 2: Solo|Paso 3: Setup|Paso 4: Expert|Paso 5: Nivel|Paso 6: Auto|Paso 7: Iniciar
-    Gui, Main:Add, Text, x325 y283 cSilver, Delay (ms):
-    Gui, Main:Add, Edit, x395 y280 w60 h22 vEditScrollDelay, 500
+    Gui, Main:Add, Text, x25 y363 cSilver, Scroll en paso:
+    Gui, Main:Add, DropDownList, x120 y360 w195 vDDLScrollPaso Choose1, Todos los ciclos|Paso 1: Battle|Paso 2: Solo|Paso 3: Setup|Paso 4: Expert|Paso 5: Nivel|Paso 6: Auto|Paso 7: Iniciar
+    Gui, Main:Add, Text, x325 y363 cSilver, Delay (ms):
+    Gui, Main:Add, Edit, x395 y360 w60 h22 vEditScrollDelay, 500
     Gui, Main:Add, UpDown, Range100-3000, 500
 
     Gui, Main:Font, s9 cWhite Normal
-    Gui, Main:Add, Button, x25 y315 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
-    Gui, Main:Add, Button, x235 y315 w225 h25 gProbarScroll, Probar Scroll
+    Gui, Main:Add, Button, x25 y395 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
+    Gui, Main:Add, Button, x235 y395 w225 h25 gProbarScroll, Probar Scroll
 
     ; --- SECCIÓN: Control del Bot ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y360 w460 h60, CONTROL DEL BOT
+    Gui, Main:Add, GroupBox, x10 y440 w460 h60, CONTROL DEL BOT
 
     Gui, Main:Font, s9 cWhite Normal
-    Gui, Main:Add, Button, x25 y385 w140 h25 gIniciarBot, INICIAR (F12)
-    Gui, Main:Add, Button, x175 y385 w140 h25 gPausarBot, PAUSAR (F12)
-    Gui, Main:Add, Button, x325 y385 w135 h25 gDetenerBot, DETENER (F11)
+    Gui, Main:Add, Button, x25 y465 w140 h25 gIniciarBot, INICIAR (F12)
+    Gui, Main:Add, Button, x175 y465 w140 h25 gPausarBot, PAUSAR (F12)
+    Gui, Main:Add, Button, x325 y465 w135 h25 gDetenerBot, DETENER (F11)
 
     ; --- SECCIÓN: Estado ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y430 w460 h50, ESTADO
+    Gui, Main:Add, GroupBox, x10 y510 w460 h50, ESTADO
 
     Gui, Main:Font, s11 c0x00FF88 Bold
-    Gui, Main:Add, Text, x25 y452 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
+    Gui, Main:Add, Text, x25 y532 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
 
     ; --- SECCIÓN: Log de Depuración ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y490 w460 h220, LOG DE DEPURACIÓN
+    Gui, Main:Add, GroupBox, x10 y570 w460 h220, LOG DE DEPURACIÓN
 
     Gui, Main:Font, s8 c0x00FF88 Normal, Consolas
-    Gui, Main:Add, Edit, x25 y515 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
+    Gui, Main:Add, Edit, x25 y595 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
 
     ; --- Mostrar ventana ---
-    Gui, Main:Show, w480 h725, Game Bot - AutoHotkey v1.1
+    Gui, Main:Show, w480 h805, Game Bot - AutoHotkey v1.1
     Log("=== Game Bot iniciado ===")
     Log("Carpeta de imágenes: " . CarpetaImagenes)
     Log("Presiona F12 para iniciar/pausar, F11 para detener")
@@ -460,6 +480,32 @@ IniciarBot:
         MsgBox, 16, Error, La ventana '%VentanaObjetivo%' no existe.`nAbre el juego primero.
         Log("ERROR: Ventana no encontrada al iniciar")
         return
+    }
+
+    ; Auto-ajustar ventana si la opción está activa
+    GuiControlGet, ChkAutoAjustar, Main:
+    AutoAjustar := ChkAutoAjustar
+    if (AutoAjustar) {
+        GuiControlGet, EditVentanaAncho, Main:
+        GuiControlGet, EditVentanaAlto, Main:
+        VentanaAncho := RegExReplace(EditVentanaAncho, ",", "") + 0
+        VentanaAlto := RegExReplace(EditVentanaAlto, ",", "") + 0
+
+        if (VentanaAncho >= 100 && VentanaAlto >= 100) {
+            WinGetPos, wx, wy, wwActual, whActual, %VentanaObjetivo%
+            if (wwActual != VentanaAncho || whActual != VentanaAlto) {
+                Log("Auto-ajustando ventana de " . wwActual . "x" . whActual . " a " . VentanaAncho . "x" . VentanaAlto)
+                WinMove, %VentanaObjetivo%,, wx, wy, %VentanaAncho%, %VentanaAlto%
+                Sleep, 500
+                WinGetPos,,, wwNuevo, whNuevo, %VentanaObjetivo%
+                if (wwNuevo = VentanaAncho && whNuevo = VentanaAlto)
+                    Log("Ventana auto-ajustada correctamente a " . wwNuevo . "x" . whNuevo)
+                else
+                    Log("AVISO: Auto-ajuste parcial. Resultado: " . wwNuevo . "x" . whNuevo)
+            } else {
+                Log("Ventana ya tiene el tamano correcto: " . VentanaAncho . "x" . VentanaAlto)
+            }
+        }
     }
 
     BotActivo := true
@@ -848,6 +894,80 @@ ProbarScroll:
     Log("Probando scroll en (" . tmpScrollX . ", " . tmpScrollY . ") x" . tmpScrollCant . " clicks...")
     HacerScrollEnVentana(tmpScrollX, tmpScrollY, tmpScrollCant)
     Log("Scroll de prueba enviado")
+return
+
+; ============================================================================
+; LABEL: Ajustar el tamaño de la ventana del juego
+; ============================================================================
+AjustarVentana:
+    if (VentanaObjetivo = "" || VentanaObjetivo = "(ninguna seleccionada)") {
+        MsgBox, 16, Error, Primero selecciona una ventana del juego.
+        Log("ERROR: No hay ventana seleccionada para ajustar")
+        return
+    }
+
+    IfWinNotExist, %VentanaObjetivo%
+    {
+        MsgBox, 16, Error, La ventana '%VentanaObjetivo%' no existe.`nAbre el juego primero.
+        Log("ERROR: Ventana no encontrada al intentar ajustar")
+        return
+    }
+
+    GuiControlGet, EditVentanaAncho, Main:
+    GuiControlGet, EditVentanaAlto, Main:
+    VentanaAncho := RegExReplace(EditVentanaAncho, ",", "") + 0
+    VentanaAlto := RegExReplace(EditVentanaAlto, ",", "") + 0
+
+    if (VentanaAncho < 100 || VentanaAlto < 100) {
+        MsgBox, 16, Error, Las dimensiones deben ser al menos 100x100 pixeles.
+        Log("ERROR: Dimensiones invalidas: " . VentanaAncho . "x" . VentanaAlto)
+        return
+    }
+
+    WinGetPos, wx, wy, wwActual, whActual, %VentanaObjetivo%
+    Log("Tamano actual de ventana: " . wwActual . "x" . whActual)
+
+    if (wwActual = VentanaAncho && whActual = VentanaAlto) {
+        Log("La ventana ya esta en " . VentanaAncho . "x" . VentanaAlto)
+        MsgBox, 64, Ajuste de Ventana, La ventana ya tiene el tamano correcto:`n%VentanaAncho% x %VentanaAlto%
+        return
+    }
+
+    WinMove, %VentanaObjetivo%,, wx, wy, %VentanaAncho%, %VentanaAlto%
+    Sleep, 200
+    WinGetPos,,, wwNuevo, whNuevo, %VentanaObjetivo%
+
+    if (wwNuevo = VentanaAncho && whNuevo = VentanaAlto) {
+        Log("Ventana ajustada exitosamente: " . wwNuevo . "x" . whNuevo)
+        MsgBox, 64, Ajuste de Ventana, Ventana redimensionada correctamente:`n%wwNuevo% x %whNuevo%
+    } else {
+        Log("AVISO: Tamano resultante (" . wwNuevo . "x" . whNuevo . ") difiere del objetivo (" . VentanaAncho . "x" . VentanaAlto . ")")
+        MsgBox, 48, Aviso, El tamano resultante difiere del objetivo.`n`nObjetivo: %VentanaAncho% x %VentanaAlto%`nResultado: %wwNuevo% x %whNuevo%`n`nEl juego puede tener restricciones de tamano.
+    }
+return
+
+; ============================================================================
+; LABEL: Consultar tamaño actual de la ventana
+; ============================================================================
+ConsultarTamano:
+    if (VentanaObjetivo = "" || VentanaObjetivo = "(ninguna seleccionada)") {
+        MsgBox, 16, Error, Primero selecciona una ventana del juego.
+        return
+    }
+
+    IfWinNotExist, %VentanaObjetivo%
+    {
+        MsgBox, 16, Error, La ventana '%VentanaObjetivo%' no existe.
+        return
+    }
+
+    WinGetPos, wx, wy, ww, wh, %VentanaObjetivo%
+    Log("Tamano actual: " . ww . "x" . wh . " en posicion (" . wx . ", " . wy . ")")
+
+    GuiControl, Main:, EditVentanaAncho, %ww%
+    GuiControl, Main:, EditVentanaAlto, %wh%
+
+    MsgBox, 64, Tamano Actual, Ventana: %VentanaObjetivo%`n`nTamano: %ww% x %wh%`nPosicion: %wx%`, %wy%`n`nLos campos se han actualizado con el tamano actual.
 return
 
 ; ============================================================================
