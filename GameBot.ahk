@@ -35,7 +35,7 @@ global VentanaAlto := 540               ; Alto objetivo en píxeles
 global AutoAjustar := false             ; Ajustar automáticamente al iniciar el bot
 
 ; Pasos de automatización (secuencia de botones a buscar y clicar)
-global TotalPasos := 11
+global TotalPasos := 9
 global PasoActual := 1
 global PasoImagenes := {}
 global PasoNombres := {}
@@ -55,16 +55,16 @@ PasoImagenes[7]  := CarpetaImagenes . "\boton_iniciar.bmp"
 PasoNombres[7]   := "Iniciar"
 PasoImagenes[8]  := ""  ; Paso especial: escanea victoria/derrota
 PasoNombres[8]   := "Resultado"
-PasoImagenes[9]  := CarpetaImagenes . "\boton_tap.bmp"
-PasoNombres[9]   := "Tap 1"
-PasoImagenes[10] := CarpetaImagenes . "\boton_tap.bmp"
-PasoNombres[10]  := "Tap 2"
-PasoImagenes[11] := CarpetaImagenes . "\boton_next.bmp"
-PasoNombres[11]  := "Next"
+PasoImagenes[9]  := ""  ; Paso especial: tap dinámico hasta que aparezca Next
+PasoNombres[9]   := "Tap hasta Next"
 
 ; Imágenes de resultado de batalla (usadas en paso 8)
 global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
 global IMG_DERROTA  := CarpetaImagenes . "\pantalla_derrota.bmp"
+
+; Imágenes de tap y next (usadas en paso 9)
+global IMG_TAP  := CarpetaImagenes . "\boton_tap.bmp"
+global IMG_NEXT := CarpetaImagenes . "\boton_next.bmp"
 
 ; Scroll automático
 global ScrollActivo := false
@@ -85,6 +85,11 @@ global MaxErroresConsecutivos := 30      ; Limite antes de intentar recuperació
 
 ; Paso 8: contador de intentos (máquina de estados, no-bloqueante)
 global ResultadoIntentos := 0
+
+; Paso 9: tap dinámico hasta Next (máquina de estados)
+global TapIntentos := 0               ; Intentos en el loop de taps
+global MaxTapIntentos := 30            ; Máximo de intentos antes de recuperación
+global RutaPostNext := 1              ; A dónde ir después de Next (1=victoria, 5=derrota)
 
 ; ============================================================================
 ; CREAR CARPETA DE IMÁGENES SI NO EXISTE
@@ -377,12 +382,16 @@ ActualizarEstado() {
 ; ============================================================================
 VerificarImagenes() {
     global PasoImagenes, PasoNombres, TotalPasos, CarpetaImagenes
-    global IMG_VICTORIA, IMG_DERROTA
+    global IMG_VICTORIA, IMG_DERROTA, IMG_TAP, IMG_NEXT
 
     faltantes := 0
     Loop, %TotalPasos% {
         if (A_Index = 8) {
             Log("OK: Paso 8 -> Resultado (escanea victoria/derrota)")
+            continue
+        }
+        if (A_Index = 9) {
+            Log("OK: Paso 9 -> Tap hasta Next (dinamico)")
             continue
         }
         ruta := PasoImagenes[A_Index]
@@ -407,6 +416,20 @@ VerificarImagenes() {
         faltantes++
     } else {
         Log("OK: pantalla_derrota.bmp")
+    }
+
+    ; Verificar imágenes de tap y next
+    if !FileExist(IMG_TAP) {
+        Log("AVISO: Falta imagen -> boton_tap.bmp")
+        faltantes++
+    } else {
+        Log("OK: boton_tap.bmp")
+    }
+    if !FileExist(IMG_NEXT) {
+        Log("AVISO: Falta imagen -> boton_next.bmp")
+        faltantes++
+    } else {
+        Log("OK: boton_next.bmp")
     }
 
     if (faltantes > 0)
@@ -627,6 +650,7 @@ IniciarBot:
     ContadorErrores := 0
     ErroresConsecutivos := 0
     ResultadoIntentos := 0
+    TapIntentos := 0
     Log("=== BOT INICIADO ===")
     Log("Ventana: " . VentanaObjetivo)
     Log("Variación: " . Variacion . " | Intervalo: " . IntervaloLoop . "ms | Reintentos: " . MaxReintentos)
@@ -661,6 +685,7 @@ DetenerBot:
     BotPausado := false
     EstadoActual := "IDLE"
     ResultadoIntentos := 0
+    TapIntentos := 0
     SetTimer, LoopPrincipal, Off
     Log("=== BOT DETENIDO ===")
     ActualizarEstado()
@@ -732,8 +757,10 @@ LoopPrincipal:
             Log("DERROTA detectada en intento " . ResultadoIntentos . "/15")
             ErroresConsecutivos := 0
             ResultadoIntentos := 0
+            TapIntentos := 0
+            RutaPostNext := 5
             PasoActual := 9
-            Log(">>> Ruta derrota: avanzando a paso 9 (Tap 1)")
+            Log(">>> Ruta derrota: avanzando a paso 9 (Tap hasta Next -> Nivel)")
             SetTimer, LoopPrincipal, %IntervaloLoop%
             ActualizarEstado()
             return
@@ -746,8 +773,10 @@ LoopPrincipal:
             ErroresConsecutivos := 0
             ContadorAtaques++
             ResultadoIntentos := 0
-            PasoActual := 1
-            Log(">>> Victoria: volviendo a paso 1")
+            TapIntentos := 0
+            RutaPostNext := 1
+            PasoActual := 9
+            Log(">>> Ruta victoria: avanzando a paso 9 (Tap hasta Next -> Battle)")
             SetTimer, LoopPrincipal, %IntervaloLoop%
             ActualizarEstado()
             return
@@ -767,7 +796,59 @@ LoopPrincipal:
     }
 
     ; ================================================================
-    ; PASOS NORMALES (1-7, 9-11): Buscar imagen y clicar
+    ; PASO 9 ESPECIAL: Tap dinámico hasta que aparezca Next
+    ; Busca Next primero; si no lo encuentra, busca Tap y lo clica
+    ; Funciona para victoria y derrota (RutaPostNext define el destino)
+    ; ================================================================
+    if (PasoActual = 9) {
+        TapIntentos++
+
+        if (TapIntentos = 1)
+            Log("Paso 9: Tap hasta Next (destino post-next: paso " . RutaPostNext . ")...")
+
+        EstadoActual := "Paso 9: Tap hasta Next... (" . TapIntentos . "/" . MaxTapIntentos . ")"
+        ActualizarEstado()
+
+        ; Primero buscar NEXT -> si aparece, clic y terminar
+        if (BuscarImagenEnVentana(IMG_NEXT, foundX, foundY)) {
+            Log("Next encontrado en intento " . TapIntentos . ". Haciendo clic...")
+            HacerClicEnVentana(foundX, foundY)
+            Sleep, 1500
+            ErroresConsecutivos := 0
+            TapIntentos := 0
+            PasoActual := RutaPostNext
+            Log(">>> Ciclo completado. Volviendo a paso " . RutaPostNext . ": " . PasoNombres[RutaPostNext])
+            ActualizarEstado()
+            return
+        }
+
+        ; Si no hay Next, buscar TAP -> si aparece, clic
+        if (BuscarImagenEnVentana(IMG_TAP, foundX, foundY)) {
+            Log("Tap encontrado en intento " . TapIntentos . ". Haciendo clic...")
+            HacerClicEnVentana(foundX, foundY)
+            Sleep, 1500
+            ActualizarEstado()
+            return
+        }
+
+        ; Ni tap ni next encontrados, esperar al siguiente tick
+        if (Mod(TapIntentos, 10) = 0)
+            Log("Paso 9: Ni Tap ni Next encontrados (" . TapIntentos . " intentos)")
+
+        ; Límite de intentos
+        if (TapIntentos >= MaxTapIntentos) {
+            Log("RECUPERACION: Sin Tap ni Next tras " . MaxTapIntentos . " intentos. Reiniciando desde paso 1...")
+            TapIntentos := 0
+            ErroresConsecutivos := 0
+            PasoActual := 1
+        }
+
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASOS NORMALES (1-7): Buscar imagen y clicar
     ; ================================================================
     imgActual := PasoImagenes[PasoActual]
 
@@ -810,15 +891,9 @@ LoopPrincipal:
         ErroresConsecutivos := 0
         Sleep, 1500
 
-        ; Avanzar al siguiente paso con lógica de salto
-        if (PasoActual = 11) {
-            ; Después de Next (fin de ruta derrota) -> volver a Nivel
-            PasoActual := 5
-            Log(">>> Ciclo derrota completado. Volviendo a paso 5: " . PasoNombres[5])
-        } else {
-            PasoActual := PasoActual + 1
-            Log(">>> Avanzando a paso " . PasoActual . ": " . PasoNombres[PasoActual])
-        }
+        ; Avanzar al siguiente paso
+        PasoActual := PasoActual + 1
+        Log(">>> Avanzando a paso " . PasoActual . ": " . PasoNombres[PasoActual])
     } else {
         ErroresConsecutivos++
         ContadorErrores++
