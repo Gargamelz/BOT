@@ -916,25 +916,22 @@ LoopPrincipal:
 return
 
 ; ============================================================================
-; FUNCIÓN: Obtener dimensiones de una imagen BMP leyendo el header del archivo
-; BMP header: offset 18 = ancho (4 bytes), offset 22 = alto (4 bytes)
+; FUNCIÓN: Obtener dimensiones de una imagen usando GDI (LoadPicture)
+; Funciona con cualquier formato: BMP, PNG, JPG, GIF, etc.
 ; ============================================================================
-ObtenerDimensionesBMP(rutaImagen, ByRef imgW, ByRef imgH) {
+ObtenerDimensionesImagen(rutaImagen, ByRef imgW, ByRef imgH) {
     imgW := 0
     imgH := 0
 
-    file := FileOpen(rutaImagen, "r")
-    if (!file)
+    hBitmap := LoadPicture(rutaImagen)
+    if (!hBitmap)
         return
 
-    file.Seek(18)
-    imgW := file.ReadInt()
-    imgH := file.ReadInt()
-    file.Close()
-
-    ; El alto puede ser negativo (BMP top-down), tomar valor absoluto
-    if (imgH < 0)
-        imgH := -imgH
+    VarSetCapacity(bm, 32, 0)
+    DllCall("GetObject", "Ptr", hBitmap, "Int", 32, "Ptr", &bm)
+    imgW := NumGet(bm, 4, "Int")
+    imgH := NumGet(bm, 8, "Int")
+    DllCall("DeleteObject", "Ptr", hBitmap)
 }
 
 ; ============================================================================
@@ -967,7 +964,7 @@ BuscarImagenEnVentana(ByRef rutaImagen, ByRef foundX, ByRef foundY) {
 
     if (ErrorLevel = 0) {
         ; Ajustar coordenadas al centro de la imagen encontrada
-        ObtenerDimensionesBMP(rutaImagen, imgW, imgH)
+        ObtenerDimensionesImagen(rutaImagen, imgW, imgH)
         if (imgW > 0 && imgH > 0) {
             foundX := foundX + (imgW // 2)
             foundY := foundY + (imgH // 2)
