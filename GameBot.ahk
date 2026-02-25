@@ -916,9 +916,31 @@ LoopPrincipal:
 return
 
 ; ============================================================================
+; FUNCIÓN: Obtener dimensiones de una imagen BMP leyendo el header del archivo
+; BMP header: offset 18 = ancho (4 bytes), offset 22 = alto (4 bytes)
+; ============================================================================
+ObtenerDimensionesBMP(rutaImagen, ByRef imgW, ByRef imgH) {
+    imgW := 0
+    imgH := 0
+
+    file := FileOpen(rutaImagen, "r")
+    if (!file)
+        return
+
+    file.Seek(18)
+    imgW := file.ReadInt()
+    imgH := file.ReadInt()
+    file.Close()
+
+    ; El alto puede ser negativo (BMP top-down), tomar valor absoluto
+    if (imgH < 0)
+        imgH := -imgH
+}
+
+; ============================================================================
 ; FUNCIÓN: Buscar una imagen dentro de la ventana del juego
 ; Retorna true si la encontró, false si no
-; foundX y foundY contienen las coordenadas (relativas a pantalla)
+; foundX y foundY contienen las coordenadas del CENTRO de la imagen (pantalla)
 ; ============================================================================
 BuscarImagenEnVentana(ByRef rutaImagen, ByRef foundX, ByRef foundY) {
     global VentanaObjetivo, Variacion
@@ -944,6 +966,12 @@ BuscarImagenEnVentana(ByRef rutaImagen, ByRef foundX, ByRef foundY) {
     ImageSearch, foundX, foundY, %x1%, %y1%, %x2%, %y2%, *%Variacion% %rutaImagen%
 
     if (ErrorLevel = 0) {
+        ; Ajustar coordenadas al centro de la imagen encontrada
+        ObtenerDimensionesBMP(rutaImagen, imgW, imgH)
+        if (imgW > 0 && imgH > 0) {
+            foundX := foundX + (imgW // 2)
+            foundY := foundY + (imgH // 2)
+        }
         return true    ; Imagen encontrada
     }
 
