@@ -6,64 +6,53 @@ Aqui debes colocar las capturas de pantalla (screenshots) de
 los botones del juego que el bot necesita buscar y clicar.
 
 Flujo del bot:
-  Pasos 1-7: Preparar batalla (secuencial)
-  Paso 8:    Esperar resultado (escanea victoria/derrota)
-  Derrota:   Paso 9 (tap hasta next) -> vuelve a paso 5 (nivel)
-  Victoria:  Paso 9 (tap hasta next) -> paso 10-12 (nueva batalla/ok/charizard) -> paso 6
+  Pasos 1-3: Preparar batalla (Nivel, Auto, Iniciar)
+  Paso 4:    Esperar resultado (escanea victoria/derrota)
+  Paso 5:    Tap hasta Next (victoria y derrota)
+  Derrota:   Vuelve a paso 1 (Nivel)
+  Victoria:  Pasos 6-8 (nueva batalla/ok/charizard) -> paso 2 (Auto)
 
 IMAGENES NECESARIAS (formato BMP recomendado):
 ------------------------------------------------------------
 
---- PREPARACION (pasos 1-7) ---
+--- PREPARACION (pasos 1-3) ---
 
-1. boton_battle.bmp
-   -> Boton "Battle" para entrar a la seleccion de batalla
-
-2. boton_solo.bmp
-   -> Boton "Solo" para seleccionar modo individual
-
-3. boton_setup.bmp
-   -> Boton "Setup" en la pantalla de configuracion
-
-4. boton_expert.bmp
-   -> Boton "Expert" para seleccionar dificultad
-
-5. boton_nivel.bmp
+1. boton_nivel.bmp
    -> Boton de seleccion de nivel
 
-6. boton_auto.bmp
+2. boton_auto.bmp
    -> Boton "Auto" para activar modo automatico
 
-7. boton_iniciar.bmp
+3. boton_iniciar.bmp
    -> Boton "Iniciar" para confirmar e iniciar la batalla
 
---- RESULTADO (paso 8 - el bot busca ambas) ---
+--- RESULTADO (paso 4 - el bot busca ambas) ---
 
-8a. pantalla_victoria.bmp
+4a. pantalla_victoria.bmp
     -> Captura de la pantalla de victoria
 
-8b. pantalla_derrota.bmp
+4b. pantalla_derrota.bmp
     -> Captura de la pantalla de derrota
 
---- TAP/NEXT (paso 9 - victoria y derrota) ---
+--- TAP/NEXT (paso 5 - victoria y derrota) ---
 
-9. boton_tap.bmp
-   -> Captura del texto "Tap to proceed" (se busca repetidamente)
+5a. boton_tap.bmp
+    -> Captura del texto "Tap to proceed" (se busca repetidamente)
 
-9. boton_next.bmp
-   -> Boton "Next" que aparece despues de los taps
+5b. boton_next.bmp
+    -> Boton "Next" que aparece despues de los taps
 
---- RUTA VICTORIA (pasos 10-12) ---
+--- RUTA VICTORIA (pasos 6-8) ---
 
-10. pantalla_nueva_batalla.bmp
-    -> Captura de la pantalla "Nueva batalla desbloqueada"
-    -> OPCIONAL: si no aparece, el bot la salta automaticamente
+6. pantalla_nueva_batalla.bmp
+   -> Captura de la pantalla "Nueva batalla desbloqueada"
+   -> OPCIONAL: si no aparece, el bot la salta automaticamente
 
-11. boton_ok.bmp
-    -> Boton "OK" que cierra la pantalla de nueva batalla
+7. boton_ok.bmp
+   -> Boton "OK" que cierra la pantalla de nueva batalla
 
-12. boton_charizard_ex.bmp
-    -> Imagen de "Charizard EX" para seleccionarlo
+8. boton_charizard_ex.bmp
+   -> Imagen de "Charizard EX" para seleccionarlo
 
 
 COMO HACER LAS CAPTURAS:

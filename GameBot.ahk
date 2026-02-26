@@ -35,44 +35,36 @@ global VentanaAlto := 540               ; Alto objetivo en píxeles
 global AutoAjustar := false             ; Ajustar automáticamente al iniciar el bot
 
 ; Pasos de automatización (secuencia de botones a buscar y clicar)
-global TotalPasos := 12
+global TotalPasos := 8
 global PasoActual := 1
 global PasoImagenes := {}
 global PasoNombres := {}
-PasoImagenes[1]  := CarpetaImagenes . "\boton_battle.bmp"
-PasoNombres[1]   := "Battle"
-PasoImagenes[2]  := CarpetaImagenes . "\boton_solo.bmp"
-PasoNombres[2]   := "Solo"
-PasoImagenes[3]  := CarpetaImagenes . "\boton_setup.bmp"
-PasoNombres[3]   := "Setup"
-PasoImagenes[4]  := CarpetaImagenes . "\boton_expert.bmp"
-PasoNombres[4]   := "Expert"
-PasoImagenes[5]  := CarpetaImagenes . "\boton_nivel.bmp"
-PasoNombres[5]   := "Nivel"
-PasoImagenes[6]  := CarpetaImagenes . "\boton_auto.bmp"
-PasoNombres[6]   := "Auto"
-PasoImagenes[7]  := CarpetaImagenes . "\boton_iniciar.bmp"
-PasoNombres[7]   := "Iniciar"
-PasoImagenes[8]  := ""  ; Paso especial: escanea victoria/derrota
-PasoNombres[8]   := "Resultado"
-PasoImagenes[9]  := ""  ; Paso especial: tap dinámico hasta que aparezca Next
-PasoNombres[9]   := "Tap hasta Next"
-PasoImagenes[10] := ""  ; Paso especial: detectar nueva batalla desbloqueada
-PasoNombres[10]  := "NuevaBatalla"
-PasoImagenes[11] := CarpetaImagenes . "\boton_ok.bmp"
-PasoNombres[11]  := "OK"
-PasoImagenes[12] := CarpetaImagenes . "\boton_charizard_ex.bmp"
-PasoNombres[12]  := "CharizardEX"
+PasoImagenes[1]  := CarpetaImagenes . "\boton_nivel.bmp"
+PasoNombres[1]   := "Nivel"
+PasoImagenes[2]  := CarpetaImagenes . "\boton_auto.bmp"
+PasoNombres[2]   := "Auto"
+PasoImagenes[3]  := CarpetaImagenes . "\boton_iniciar.bmp"
+PasoNombres[3]   := "Iniciar"
+PasoImagenes[4]  := ""  ; Paso especial: escanea victoria/derrota
+PasoNombres[4]   := "Resultado"
+PasoImagenes[5]  := ""  ; Paso especial: tap dinámico hasta que aparezca Next
+PasoNombres[5]   := "Tap hasta Next"
+PasoImagenes[6]  := ""  ; Paso especial: detectar nueva batalla desbloqueada
+PasoNombres[6]   := "NuevaBatalla"
+PasoImagenes[7]  := CarpetaImagenes . "\boton_ok.bmp"
+PasoNombres[7]   := "OK"
+PasoImagenes[8]  := CarpetaImagenes . "\boton_charizard_ex.bmp"
+PasoNombres[8]   := "CharizardEX"
 
-; Imágenes de resultado de batalla (usadas en paso 8)
+; Imágenes de resultado de batalla (usadas en paso 4)
 global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
 global IMG_DERROTA  := CarpetaImagenes . "\pantalla_derrota.bmp"
 
-; Imágenes de tap y next (usadas en paso 9)
+; Imágenes de tap y next (usadas en paso 5)
 global IMG_TAP  := CarpetaImagenes . "\boton_tap.bmp"
 global IMG_NEXT := CarpetaImagenes . "\boton_next.bmp"
 
-; Imágenes post-victoria (usadas en pasos 10-12)
+; Imágenes post-victoria (usadas en pasos 6-8)
 global IMG_NUEVA_BATALLA := CarpetaImagenes . "\pantalla_nueva_batalla.bmp"
 global IMG_OK            := CarpetaImagenes . "\boton_ok.bmp"
 global IMG_CHARIZARD     := CarpetaImagenes . "\boton_charizard_ex.bmp"
@@ -83,7 +75,7 @@ global ScrollRelX := 200                 ; Coordenada X relativa a la ventana
 global ScrollRelY := 300                 ; Coordenada Y relativa a la ventana
 global ScrollCantidad := 3               ; Clicks de scroll por ciclo
 global ScrollDelay := 500                ; Milisegundos de pausa entre cada scroll individual
-global ScrollEnPaso := 0                 ; 0=Todos, 1-7=Paso específico
+global ScrollEnPaso := 0                 ; 0=Todos, 1-3=Paso específico
 
 ; Contadores
 global ContadorAtaques := 0
@@ -94,15 +86,15 @@ global ContadorErrores := 0
 global ErroresConsecutivos := 0          ; Errores seguidos en el paso actual
 global MaxErroresConsecutivos := 30      ; Limite antes de intentar recuperación
 
-; Paso 8: contador de intentos (máquina de estados, no-bloqueante)
+; Paso 4: contador de intentos (máquina de estados, no-bloqueante)
 global ResultadoIntentos := 0
 
-; Paso 9: tap dinámico hasta Next (máquina de estados)
+; Paso 5: tap dinámico hasta Next (máquina de estados)
 global TapIntentos := 0               ; Intentos en el loop de taps
 global MaxTapIntentos := 30            ; Máximo de intentos antes de recuperación
-global RutaPostNext := 1              ; A dónde ir después de Next (10=victoria, 5=derrota)
+global RutaPostNext := 1              ; A dónde ir después de Next (6=victoria, 1=derrota)
 
-; Paso 10: detección de nueva batalla desbloqueada
+; Paso 6: detección de nueva batalla desbloqueada
 global NuevaBatallaIntentos := 0
 global MaxNuevaBatallaIntentos := 10  ; ~10 segundos esperando antes de saltar
 
@@ -144,7 +136,7 @@ GuardarConfig() {
 
     ; Calcular índice del paso de scroll
     tmpScrollEnPaso := 0
-    Loop, 7 {
+    Loop, 3 {
         if InStr(tmpScrollPaso, "Paso " . A_Index) {
             tmpScrollEnPaso := A_Index
             break
@@ -305,7 +297,7 @@ CrearGUI() {
 
     Gui, Main:Add, Text, x25 y363 cSilver, Scroll en paso:
     scrollPasoIndice := ScrollEnPaso + 1
-    Gui, Main:Add, DropDownList, x120 y360 w195 vDDLScrollPaso Choose%scrollPasoIndice%, Todos los ciclos|Paso 1: Battle|Paso 2: Solo|Paso 3: Setup|Paso 4: Expert|Paso 5: Nivel|Paso 6: Auto|Paso 7: Iniciar
+    Gui, Main:Add, DropDownList, x120 y360 w195 vDDLScrollPaso Choose%scrollPasoIndice%, Todos los ciclos|Paso 1: Nivel|Paso 2: Auto|Paso 3: Iniciar
     Gui, Main:Add, Text, x325 y363 cSilver, Delay (ms):
     Gui, Main:Add, Edit, x395 y360 w60 h22 vEditScrollDelay, %ScrollDelay%
     Gui, Main:Add, UpDown, Range100-3000, %ScrollDelay%
@@ -402,16 +394,16 @@ VerificarImagenes() {
 
     faltantes := 0
     Loop, %TotalPasos% {
-        if (A_Index = 8) {
-            Log("OK: Paso 8 -> Resultado (escanea victoria/derrota)")
+        if (A_Index = 4) {
+            Log("OK: Paso 4 -> Resultado (escanea victoria/derrota)")
             continue
         }
-        if (A_Index = 9) {
-            Log("OK: Paso 9 -> Tap hasta Next (dinamico)")
+        if (A_Index = 5) {
+            Log("OK: Paso 5 -> Tap hasta Next (dinamico)")
             continue
         }
-        if (A_Index = 10) {
-            Log("OK: Paso 10 -> NuevaBatalla (deteccion opcional)")
+        if (A_Index = 6) {
+            Log("OK: Paso 6 -> NuevaBatalla (deteccion opcional)")
             continue
         }
         ruta := PasoImagenes[A_Index]
@@ -634,7 +626,7 @@ IniciarBot:
     ; Leer paso de scroll
     GuiControlGet, DDLScrollPaso, Main:
     ScrollEnPaso := 0
-    Loop, 7 {
+    Loop, 3 {
         if InStr(DDLScrollPaso, "Paso " . A_Index) {
             ScrollEnPaso := A_Index
             break
@@ -776,20 +768,20 @@ LoopPrincipal:
     ActualizarEstado()
 
     ; ================================================================
-    ; PASO 8 ESPECIAL: Escanear victoria O derrota
+    ; PASO 4 ESPECIAL: Escanear victoria O derrota
     ; 15 intentos con 10 segundos entre cada uno (NO-BLOQUEANTE)
     ; Cada tick del timer hace UN solo intento y retorna
     ; ================================================================
-    if (PasoActual = 8) {
+    if (PasoActual = 4) {
         ResultadoIntentos++
 
         ; Primera vez: cambiar timer a 10s y logear
         if (ResultadoIntentos = 1) {
-            Log("Paso 8: Buscando resultado de batalla (15 intentos, 10s entre cada uno)...")
+            Log("Paso 4: Buscando resultado de batalla (15 intentos, 10s entre cada uno)...")
             SetTimer, LoopPrincipal, 10000
         }
 
-        EstadoActual := "Paso 8: Esperando resultado... (" . ResultadoIntentos . "/15)"
+        EstadoActual := "Paso 4: Esperando resultado... (" . ResultadoIntentos . "/15)"
         ActualizarEstado()
 
         ; Buscar DERROTA (solo detectar, NO hacer clic)
@@ -798,9 +790,9 @@ LoopPrincipal:
             ErroresConsecutivos := 0
             ResultadoIntentos := 0
             TapIntentos := 0
-            RutaPostNext := 5
-            PasoActual := 9
-            Log(">>> Ruta derrota: avanzando a paso 9 (Tap hasta Next -> Nivel)")
+            RutaPostNext := 1
+            PasoActual := 5
+            Log(">>> Ruta derrota: avanzando a paso 5 (Tap hasta Next -> Nivel)")
             SetTimer, LoopPrincipal, %IntervaloLoop%
             ActualizarEstado()
             return
@@ -814,9 +806,9 @@ LoopPrincipal:
             ContadorAtaques++
             ResultadoIntentos := 0
             TapIntentos := 0
-            RutaPostNext := 10
-            PasoActual := 9
-            Log(">>> Ruta victoria: avanzando a paso 9 (Tap hasta Next -> NuevaBatalla)")
+            RutaPostNext := 6
+            PasoActual := 5
+            Log(">>> Ruta victoria: avanzando a paso 5 (Tap hasta Next -> NuevaBatalla)")
             SetTimer, LoopPrincipal, %IntervaloLoop%
             ActualizarEstado()
             return
@@ -836,24 +828,24 @@ LoopPrincipal:
     }
 
     ; ================================================================
-    ; PASO 9 ESPECIAL: Tap dinámico hasta que aparezca Next
+    ; PASO 5 ESPECIAL: Tap dinámico hasta que aparezca Next
     ; Busca Next primero; si no lo encuentra, busca Tap y lo clica
     ; Funciona para victoria y derrota (RutaPostNext define el destino)
     ; ================================================================
-    if (PasoActual = 9) {
+    if (PasoActual = 5) {
         TapIntentos++
 
         if (TapIntentos = 1)
-            Log("Paso 9: Tap hasta Next (destino post-next: paso " . RutaPostNext . ")...")
+            Log("Paso 5: Tap hasta Next (destino post-next: paso " . RutaPostNext . ")...")
 
-        EstadoActual := "Paso 9: Tap hasta Next... (" . TapIntentos . "/" . MaxTapIntentos . ")"
+        EstadoActual := "Paso 5: Tap hasta Next... (" . TapIntentos . "/" . MaxTapIntentos . ")"
         ActualizarEstado()
 
         ; Primero buscar NEXT -> si aparece, clic y terminar
         if (BuscarImagenEnVentana(IMG_NEXT, foundX, foundY)) {
             Log("Next encontrado en intento " . TapIntentos . ". Haciendo clic...")
             HacerClicEnVentana(foundX, foundY)
-            Sleep, 1500
+            Sleep, 2500
             ErroresConsecutivos := 0
             TapIntentos := 0
             PasoActual := RutaPostNext
@@ -866,14 +858,14 @@ LoopPrincipal:
         if (BuscarImagenEnVentana(IMG_TAP, foundX, foundY)) {
             Log("Tap encontrado en intento " . TapIntentos . ". Haciendo clic...")
             HacerClicEnVentana(foundX, foundY)
-            Sleep, 1500
+            Sleep, 2500
             ActualizarEstado()
             return
         }
 
         ; Ni tap ni next encontrados, esperar al siguiente tick
         if (Mod(TapIntentos, 10) = 0)
-            Log("Paso 9: Ni Tap ni Next encontrados (" . TapIntentos . " intentos)")
+            Log("Paso 5: Ni Tap ni Next encontrados (" . TapIntentos . " intentos)")
 
         ; Límite de intentos
         if (TapIntentos >= MaxTapIntentos) {
@@ -888,24 +880,24 @@ LoopPrincipal:
     }
 
     ; ================================================================
-    ; PASO 10 ESPECIAL: Detectar pantalla "nueva batalla desbloqueada"
-    ; Si aparece -> paso 11 (OK). Si no tras N intentos -> paso 12 (CharizardEX)
+    ; PASO 6 ESPECIAL: Detectar pantalla "nueva batalla desbloqueada"
+    ; Si aparece -> paso 7 (OK). Si no tras N intentos -> paso 8 (CharizardEX)
     ; ================================================================
-    if (PasoActual = 10) {
+    if (PasoActual = 6) {
         NuevaBatallaIntentos++
 
         if (NuevaBatallaIntentos = 1)
-            Log("Paso 10: Buscando pantalla nueva batalla desbloqueada...")
+            Log("Paso 6: Buscando pantalla nueva batalla desbloqueada...")
 
-        EstadoActual := "Paso 10: NuevaBatalla... (" . NuevaBatallaIntentos . "/" . MaxNuevaBatallaIntentos . ")"
+        EstadoActual := "Paso 6: NuevaBatalla... (" . NuevaBatallaIntentos . "/" . MaxNuevaBatallaIntentos . ")"
         ActualizarEstado()
 
         if (BuscarImagenEnVentana(IMG_NUEVA_BATALLA, foundX, foundY)) {
             Log("Nueva batalla desbloqueada detectada en intento " . NuevaBatallaIntentos)
             NuevaBatallaIntentos := 0
             ErroresConsecutivos := 0
-            PasoActual := 11
-            Log(">>> Avanzando a paso 11: OK")
+            PasoActual := 7
+            Log(">>> Avanzando a paso 7: OK")
             ActualizarEstado()
             return
         }
@@ -915,15 +907,15 @@ LoopPrincipal:
             Log("Nueva batalla no encontrada tras " . MaxNuevaBatallaIntentos . " intentos. Saltando a CharizardEX...")
             NuevaBatallaIntentos := 0
             ErroresConsecutivos := 0
-            PasoActual := 12
-            Log(">>> Saltando a paso 12: CharizardEX")
+            PasoActual := 8
+            Log(">>> Saltando a paso 8: CharizardEX")
             ActualizarEstado()
         }
         return
     }
 
     ; ================================================================
-    ; PASOS NORMALES (1-7, 11-12): Buscar imagen y clicar
+    ; PASOS NORMALES (1-3, 7-8): Buscar imagen y clicar
     ; ================================================================
     imgActual := PasoImagenes[PasoActual]
 
@@ -935,7 +927,7 @@ LoopPrincipal:
     }
 
     ; Scroll inteligente: buscar imagen ANTES y DESPUÉS de cada scroll individual
-    ; (solo aplica a pasos 1-7 donde se configura scroll)
+    ; (solo aplica a pasos normales donde se configura scroll)
     imagenEncontrada := false
     if (ScrollActivo && (ScrollEnPaso = 0 || ScrollEnPaso = PasoActual)) {
         ; Buscar ANTES del primer scroll (por si ya está visible)
@@ -964,15 +956,15 @@ LoopPrincipal:
         HacerClicEnVentana(foundX, foundY)
         ContadorAtaques++
         ErroresConsecutivos := 0
-        Sleep, 1500
+        Sleep, 2500
 
         ; Avanzar al siguiente paso
         PasoActual := PasoActual + 1
 
-        ; Ruta post-victoria: después de CharizardEX (paso 12), volver a Auto (paso 6)
+        ; Ruta post-victoria: después de CharizardEX (paso 8), volver a Auto (paso 2)
         if (PasoActual > TotalPasos) {
-            PasoActual := 6
-            Log(">>> Ruta post-victoria completada. Volviendo a paso 6: " . PasoNombres[6])
+            PasoActual := 2
+            Log(">>> Ruta post-victoria completada. Volviendo a paso 2: " . PasoNombres[2])
         } else {
             Log(">>> Avanzando a paso " . PasoActual . ": " . PasoNombres[PasoActual])
         }
