@@ -35,7 +35,7 @@ global VentanaAlto := 540               ; Alto objetivo en píxeles
 global AutoAjustar := false             ; Ajustar automáticamente al iniciar el bot
 
 ; Pasos de automatización (secuencia de botones a buscar y clicar)
-global TotalPasos := 9
+global TotalPasos := 12
 global PasoActual := 1
 global PasoImagenes := {}
 global PasoNombres := {}
@@ -57,6 +57,12 @@ PasoImagenes[8]  := ""  ; Paso especial: escanea victoria/derrota
 PasoNombres[8]   := "Resultado"
 PasoImagenes[9]  := ""  ; Paso especial: tap dinámico hasta que aparezca Next
 PasoNombres[9]   := "Tap hasta Next"
+PasoImagenes[10] := ""  ; Paso especial: detectar nueva batalla desbloqueada
+PasoNombres[10]  := "NuevaBatalla"
+PasoImagenes[11] := CarpetaImagenes . "\boton_ok.bmp"
+PasoNombres[11]  := "OK"
+PasoImagenes[12] := CarpetaImagenes . "\boton_charizard_ex.bmp"
+PasoNombres[12]  := "CharizardEX"
 
 ; Imágenes de resultado de batalla (usadas en paso 8)
 global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
@@ -65,6 +71,11 @@ global IMG_DERROTA  := CarpetaImagenes . "\pantalla_derrota.bmp"
 ; Imágenes de tap y next (usadas en paso 9)
 global IMG_TAP  := CarpetaImagenes . "\boton_tap.bmp"
 global IMG_NEXT := CarpetaImagenes . "\boton_next.bmp"
+
+; Imágenes post-victoria (usadas en pasos 10-12)
+global IMG_NUEVA_BATALLA := CarpetaImagenes . "\pantalla_nueva_batalla.bmp"
+global IMG_OK            := CarpetaImagenes . "\boton_ok.bmp"
+global IMG_CHARIZARD     := CarpetaImagenes . "\boton_charizard_ex.bmp"
 
 ; Scroll automático
 global ScrollActivo := false
@@ -89,7 +100,11 @@ global ResultadoIntentos := 0
 ; Paso 9: tap dinámico hasta Next (máquina de estados)
 global TapIntentos := 0               ; Intentos en el loop de taps
 global MaxTapIntentos := 30            ; Máximo de intentos antes de recuperación
-global RutaPostNext := 1              ; A dónde ir después de Next (1=victoria, 5=derrota)
+global RutaPostNext := 1              ; A dónde ir después de Next (10=victoria, 5=derrota)
+
+; Paso 10: detección de nueva batalla desbloqueada
+global NuevaBatallaIntentos := 0
+global MaxNuevaBatallaIntentos := 10  ; ~10 segundos esperando antes de saltar
 
 ; ============================================================================
 ; CREAR CARPETA DE IMÁGENES SI NO EXISTE
@@ -383,6 +398,7 @@ ActualizarEstado() {
 VerificarImagenes() {
     global PasoImagenes, PasoNombres, TotalPasos, CarpetaImagenes
     global IMG_VICTORIA, IMG_DERROTA, IMG_TAP, IMG_NEXT
+    global IMG_NUEVA_BATALLA, IMG_OK, IMG_CHARIZARD
 
     faltantes := 0
     Loop, %TotalPasos% {
@@ -392,6 +408,10 @@ VerificarImagenes() {
         }
         if (A_Index = 9) {
             Log("OK: Paso 9 -> Tap hasta Next (dinamico)")
+            continue
+        }
+        if (A_Index = 10) {
+            Log("OK: Paso 10 -> NuevaBatalla (deteccion opcional)")
             continue
         }
         ruta := PasoImagenes[A_Index]
@@ -430,6 +450,26 @@ VerificarImagenes() {
         faltantes++
     } else {
         Log("OK: boton_next.bmp")
+    }
+
+    ; Verificar imágenes post-victoria
+    if !FileExist(IMG_NUEVA_BATALLA) {
+        Log("AVISO: Falta imagen -> pantalla_nueva_batalla.bmp")
+        faltantes++
+    } else {
+        Log("OK: pantalla_nueva_batalla.bmp")
+    }
+    if !FileExist(IMG_OK) {
+        Log("AVISO: Falta imagen -> boton_ok.bmp")
+        faltantes++
+    } else {
+        Log("OK: boton_ok.bmp")
+    }
+    if !FileExist(IMG_CHARIZARD) {
+        Log("AVISO: Falta imagen -> boton_charizard_ex.bmp")
+        faltantes++
+    } else {
+        Log("OK: boton_charizard_ex.bmp")
     }
 
     if (faltantes > 0)
@@ -774,9 +814,9 @@ LoopPrincipal:
             ContadorAtaques++
             ResultadoIntentos := 0
             TapIntentos := 0
-            RutaPostNext := 1
+            RutaPostNext := 10
             PasoActual := 9
-            Log(">>> Ruta victoria: avanzando a paso 9 (Tap hasta Next -> Battle)")
+            Log(">>> Ruta victoria: avanzando a paso 9 (Tap hasta Next -> NuevaBatalla)")
             SetTimer, LoopPrincipal, %IntervaloLoop%
             ActualizarEstado()
             return
@@ -848,7 +888,42 @@ LoopPrincipal:
     }
 
     ; ================================================================
-    ; PASOS NORMALES (1-7): Buscar imagen y clicar
+    ; PASO 10 ESPECIAL: Detectar pantalla "nueva batalla desbloqueada"
+    ; Si aparece -> paso 11 (OK). Si no tras N intentos -> paso 12 (CharizardEX)
+    ; ================================================================
+    if (PasoActual = 10) {
+        NuevaBatallaIntentos++
+
+        if (NuevaBatallaIntentos = 1)
+            Log("Paso 10: Buscando pantalla nueva batalla desbloqueada...")
+
+        EstadoActual := "Paso 10: NuevaBatalla... (" . NuevaBatallaIntentos . "/" . MaxNuevaBatallaIntentos . ")"
+        ActualizarEstado()
+
+        if (BuscarImagenEnVentana(IMG_NUEVA_BATALLA, foundX, foundY)) {
+            Log("Nueva batalla desbloqueada detectada en intento " . NuevaBatallaIntentos)
+            NuevaBatallaIntentos := 0
+            ErroresConsecutivos := 0
+            PasoActual := 11
+            Log(">>> Avanzando a paso 11: OK")
+            ActualizarEstado()
+            return
+        }
+
+        ; Si no aparece tras MaxNuevaBatallaIntentos, saltar directamente a CharizardEX
+        if (NuevaBatallaIntentos >= MaxNuevaBatallaIntentos) {
+            Log("Nueva batalla no encontrada tras " . MaxNuevaBatallaIntentos . " intentos. Saltando a CharizardEX...")
+            NuevaBatallaIntentos := 0
+            ErroresConsecutivos := 0
+            PasoActual := 12
+            Log(">>> Saltando a paso 12: CharizardEX")
+            ActualizarEstado()
+        }
+        return
+    }
+
+    ; ================================================================
+    ; PASOS NORMALES (1-7, 11-12): Buscar imagen y clicar
     ; ================================================================
     imgActual := PasoImagenes[PasoActual]
 
@@ -893,7 +968,14 @@ LoopPrincipal:
 
         ; Avanzar al siguiente paso
         PasoActual := PasoActual + 1
-        Log(">>> Avanzando a paso " . PasoActual . ": " . PasoNombres[PasoActual])
+
+        ; Ruta post-victoria: después de CharizardEX (paso 12), volver a Auto (paso 6)
+        if (PasoActual > TotalPasos) {
+            PasoActual := 6
+            Log(">>> Ruta post-victoria completada. Volviendo a paso 6: " . PasoNombres[6])
+        } else {
+            Log(">>> Avanzando a paso " . PasoActual . ": " . PasoNombres[PasoActual])
+        }
     } else {
         ErroresConsecutivos++
         ContadorErrores++

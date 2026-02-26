@@ -8,8 +8,8 @@ los botones del juego que el bot necesita buscar y clicar.
 Flujo del bot:
   Pasos 1-7: Preparar batalla (secuencial)
   Paso 8:    Esperar resultado (escanea victoria/derrota)
-  Derrota:   Pasos 9-12 (tap x3 + next) -> vuelve a paso 5 (nivel)
-  Victoria:  Placeholder (vuelve a paso 1 por ahora)
+  Derrota:   Paso 9 (tap hasta next) -> vuelve a paso 5 (nivel)
+  Victoria:  Paso 9 (tap hasta next) -> paso 10-12 (nueva batalla/ok/charizard) -> paso 6
 
 IMAGENES NECESARIAS (formato BMP recomendado):
 ------------------------------------------------------------
@@ -45,13 +45,25 @@ IMAGENES NECESARIAS (formato BMP recomendado):
 8b. pantalla_derrota.bmp
     -> Captura de la pantalla de derrota
 
---- RUTA DERROTA (pasos 9-12) ---
+--- TAP/NEXT (paso 9 - victoria y derrota) ---
 
-9/10/11. boton_tap.bmp  (UN solo archivo, se usa 3 veces)
-    -> Captura del texto "Tap to proceed"
+9. boton_tap.bmp
+   -> Captura del texto "Tap to proceed" (se busca repetidamente)
 
-12. boton_next.bmp
-    -> Boton "Next" despues de los taps
+9. boton_next.bmp
+   -> Boton "Next" que aparece despues de los taps
+
+--- RUTA VICTORIA (pasos 10-12) ---
+
+10. pantalla_nueva_batalla.bmp
+    -> Captura de la pantalla "Nueva batalla desbloqueada"
+    -> OPCIONAL: si no aparece, el bot la salta automaticamente
+
+11. boton_ok.bmp
+    -> Boton "OK" que cierra la pantalla de nueva batalla
+
+12. boton_charizard_ex.bmp
+    -> Imagen de "Charizard EX" para seleccionarlo
 
 
 COMO HACER LAS CAPTURAS:
