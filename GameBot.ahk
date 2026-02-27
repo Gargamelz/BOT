@@ -39,8 +39,8 @@ global TotalPasos := 8
 global PasoActual := 1
 global PasoImagenes := {}
 global PasoNombres := {}
-PasoImagenes[1]  := CarpetaImagenes . "\boton_nivel.bmp"
-PasoNombres[1]   := "Nivel"
+PasoImagenes[1]  := ""  ; Dinámico: se actualiza en cada ciclo desde BatallaImagenes
+PasoNombres[1]   := "SeleccionBatalla"
 PasoImagenes[2]  := CarpetaImagenes . "\boton_auto.bmp"
 PasoNombres[2]   := "Auto"
 PasoImagenes[3]  := CarpetaImagenes . "\boton_iniciar.bmp"
@@ -68,22 +68,26 @@ global IMG_NEXT := CarpetaImagenes . "\boton_next.bmp"
 global IMG_NUEVA_BATALLA := CarpetaImagenes . "\pantalla_nueva_batalla.bmp"
 global IMG_OK            := CarpetaImagenes . "\boton_ok.bmp"
 
-; Rotación de batallas (paso 8 rota entre estas imágenes cada ciclo)
+; Rotación de batallas (pasos 1 y 8 usan esta lista)
+; Paso 1: selecciona batalla actual (inicio/derrota, NO avanza)
+; Paso 8: selecciona siguiente batalla (victoria, SÍ avanza)
 global BatallaImagenes := {}
 global BatallaNombres := {}
-global TotalBatallas := 5
+global TotalBatallas := 6
 global BatallaActual := 1
 
-BatallaImagenes[1] := CarpetaImagenes . "\boton_charizard_ex.bmp"
-BatallaNombres[1]  := "CharizardEX"
-BatallaImagenes[2] := CarpetaImagenes . "\boton_batalla2.bmp"
-BatallaNombres[2]  := "Batalla2"
-BatallaImagenes[3] := CarpetaImagenes . "\boton_batalla3.bmp"
-BatallaNombres[3]  := "Batalla3"
-BatallaImagenes[4] := CarpetaImagenes . "\boton_batalla4.bmp"
-BatallaNombres[4]  := "Batalla4"
-BatallaImagenes[5] := CarpetaImagenes . "\boton_batalla5.bmp"
-BatallaNombres[5]  := "Batalla5"
+BatallaImagenes[1] := CarpetaImagenes . "\boton_venasaur_ex.bmp"
+BatallaNombres[1]  := "Venasaur EX"
+BatallaImagenes[2] := CarpetaImagenes . "\boton_charizard_ex.bmp"
+BatallaNombres[2]  := "Charizard EX"
+BatallaImagenes[3] := CarpetaImagenes . "\boton_starmie_ex.bmp"
+BatallaNombres[3]  := "Starmie EX"
+BatallaImagenes[4] := CarpetaImagenes . "\boton_pikachu_ex.bmp"
+BatallaNombres[4]  := "Pikachu EX"
+BatallaImagenes[5] := CarpetaImagenes . "\boton_mewtwo_ex.bmp"
+BatallaNombres[5]  := "Mewtwo EX"
+BatallaImagenes[6] := CarpetaImagenes . "\boton_machamp_ex.bmp"
+BatallaNombres[6]  := "Machamp EX"
 
 ; Scroll automático
 global ScrollActivo := false
@@ -327,7 +331,7 @@ CrearGUI() {
     Gui, Main:Add, GroupBox, x10 y440 w460 h50, INICIAR EN PASO
     Gui, Main:Font, s9 cSilver Normal
     Gui, Main:Add, Text, x25 y463 cSilver, Paso:
-    Gui, Main:Add, DropDownList, x65 y460 w395 vDDLPasoInicio Choose1, 1: Nivel|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SeleccionBatalla
+    Gui, Main:Add, DropDownList, x65 y460 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla
 
     ; --- SECCIÓN: Control del Bot ---
     Gui, Main:Font, s10 cWhite Bold
@@ -418,6 +422,10 @@ VerificarImagenes() {
 
     faltantes := 0
     Loop, %TotalPasos% {
+        if (A_Index = 1) {
+            Log("OK: Paso 1 -> SeleccionBatalla (dinamico, rotacion)")
+            continue
+        }
         if (A_Index = 4) {
             Log("OK: Paso 4 -> Resultado (escanea victoria/derrota)")
             continue
@@ -807,6 +815,10 @@ LoopPrincipal:
         PasoActual := 1
         ErroresConsecutivos := 0
     }
+
+    ; Paso 1 dinámico: siempre usa la batalla actual de la rotación
+    PasoImagenes[1] := BatallaImagenes[BatallaActual]
+    PasoNombres[1]  := BatallaNombres[BatallaActual]
 
     nombreActual := PasoNombres[PasoActual]
     EstadoActual := "Paso " . PasoActual . "/" . TotalPasos . ": " . nombreActual

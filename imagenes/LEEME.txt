@@ -11,15 +11,15 @@ Flujo del bot:
   Paso 5:    Tap hasta Next (victoria y derrota)
   Derrota:   Vuelve a paso 1 (Nivel)
   Victoria:  Pasos 6-8 (nueva batalla/ok/seleccion batalla) -> paso 2 (Auto)
-  El paso 8 rota entre 5 batallas distintas en cada ciclo
+  Pasos 1 y 8 rotan entre 6 batallas distintas en cada ciclo
 
 IMAGENES NECESARIAS (formato BMP recomendado):
 ------------------------------------------------------------
 
 --- PREPARACION (pasos 1-3) ---
 
-1. boton_nivel.bmp
-   -> Boton de seleccion de nivel
+1. (Dinamico) Seleccion de batalla desde la rotacion
+   -> El bot usa la imagen de la batalla actual automaticamente
 
 2. boton_auto.bmp
    -> Boton "Auto" para activar modo automatico
@@ -52,22 +52,25 @@ IMAGENES NECESARIAS (formato BMP recomendado):
 7. boton_ok.bmp
    -> Boton "OK" que cierra la pantalla de nueva batalla
 
-8. ROTACION DE BATALLAS (el bot rota entre estas 5 en cada ciclo):
+8. ROTACION DE BATALLAS (el bot rota entre estas 6 en cada ciclo):
 
-   8a. boton_charizard_ex.bmp
+   8a. boton_venasaur_ex.bmp
+       -> Imagen de "Venasaur EX"
+
+   8b. boton_charizard_ex.bmp
        -> Imagen de "Charizard EX"
 
-   8b. boton_batalla2.bmp
-       -> Imagen de la batalla 2 (pendiente de nombre)
+   8c. boton_starmie_ex.bmp
+       -> Imagen de "Starmie EX"
 
-   8c. boton_batalla3.bmp
-       -> Imagen de la batalla 3 (pendiente de nombre)
+   8d. boton_pikachu_ex.bmp
+       -> Imagen de "Pikachu EX"
 
-   8d. boton_batalla4.bmp
-       -> Imagen de la batalla 4 (pendiente de nombre)
+   8e. boton_mewtwo_ex.bmp
+       -> Imagen de "Mewtwo EX"
 
-   8e. boton_batalla5.bmp
-       -> Imagen de la batalla 5 (pendiente de nombre)
+   8f. boton_machamp_ex.bmp
+       -> Imagen de "Machamp EX"
 
 
 COMO HACER LAS CAPTURAS:
