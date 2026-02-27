@@ -306,31 +306,38 @@ CrearGUI() {
     Gui, Main:Add, Button, x25 y395 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
     Gui, Main:Add, Button, x235 y395 w225 h25 gProbarScroll, Probar Scroll
 
+    ; --- SECCIÓN: Paso Inicial ---
+    Gui, Main:Font, s10 cWhite Bold
+    Gui, Main:Add, GroupBox, x10 y440 w460 h50, INICIAR EN PASO
+    Gui, Main:Font, s9 cSilver Normal
+    Gui, Main:Add, Text, x25 y463 cSilver, Paso:
+    Gui, Main:Add, DropDownList, x65 y460 w395 vDDLPasoInicio Choose1, 1: Nivel|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: CharizardEX
+
     ; --- SECCIÓN: Control del Bot ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y440 w460 h60, CONTROL DEL BOT
+    Gui, Main:Add, GroupBox, x10 y500 w460 h60, CONTROL DEL BOT
 
     Gui, Main:Font, s9 cWhite Normal
-    Gui, Main:Add, Button, x25 y465 w140 h25 gIniciarBot, INICIAR (F12)
-    Gui, Main:Add, Button, x175 y465 w140 h25 gPausarBot, PAUSAR (F12)
-    Gui, Main:Add, Button, x325 y465 w135 h25 gDetenerBot, DETENER (F11)
+    Gui, Main:Add, Button, x25 y525 w140 h25 gIniciarBot, INICIAR (F12)
+    Gui, Main:Add, Button, x175 y525 w140 h25 gPausarBot, PAUSAR (F12)
+    Gui, Main:Add, Button, x325 y525 w135 h25 gDetenerBot, DETENER (F11)
 
     ; --- SECCIÓN: Estado ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y510 w460 h50, ESTADO
+    Gui, Main:Add, GroupBox, x10 y570 w460 h50, ESTADO
 
     Gui, Main:Font, s11 c0x00FF88 Bold
-    Gui, Main:Add, Text, x25 y532 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
+    Gui, Main:Add, Text, x25 y592 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
 
     ; --- SECCIÓN: Log de Depuración ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y570 w460 h220, LOG DE DEPURACIÓN
+    Gui, Main:Add, GroupBox, x10 y630 w460 h220, LOG DE DEPURACIÓN
 
     Gui, Main:Font, s8 c0x00FF88 Normal, Consolas
-    Gui, Main:Add, Edit, x25 y595 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
+    Gui, Main:Add, Edit, x25 y655 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
 
     ; --- Mostrar ventana ---
-    Gui, Main:Show, w480 h805, Game Bot - AutoHotkey v1.1
+    Gui, Main:Show, w480 h865, Game Bot - AutoHotkey v1.1
     Log("=== Game Bot iniciado ===")
     Log("Carpeta de imágenes: " . CarpetaImagenes)
     Log("Presiona F12 para iniciar/pausar, F11 para detener")
@@ -673,10 +680,20 @@ IniciarBot:
         }
     }
 
+    ; Leer paso inicial seleccionado
+    GuiControlGet, DDLPasoInicio, Main:
+    PasoInicioSeleccionado := 1
+    Loop, 8 {
+        if InStr(DDLPasoInicio, A_Index . ":") {
+            PasoInicioSeleccionado := A_Index
+            break
+        }
+    }
+
     BotActivo := true
     BotPausado := false
-    PasoActual := 1
-    EstadoActual := "Paso 1"
+    PasoActual := PasoInicioSeleccionado
+    EstadoActual := "Paso " . PasoActual
     ContadorCiclos := 0
     ContadorAtaques := 0
     ContadorErrores := 0
@@ -685,6 +702,7 @@ IniciarBot:
     TapIntentos := 0
     Log("=== BOT INICIADO ===")
     Log("Ventana: " . VentanaObjetivo)
+    Log("Iniciando en paso " . PasoActual . ": " . PasoNombres[PasoActual])
     Log("Variación: " . Variacion . " | Intervalo: " . IntervaloLoop . "ms | Reintentos: " . MaxReintentos)
     if (ScrollActivo) {
         pasoNombre := (ScrollEnPaso = 0) ? "Todos los ciclos" : "Paso " . ScrollEnPaso
@@ -775,18 +793,18 @@ LoopPrincipal:
     if (PasoActual = 4) {
         ResultadoIntentos++
 
-        ; Primera vez: cambiar timer a 10s y logear
+        ; Primera vez: cambiar timer a 3s y logear
         if (ResultadoIntentos = 1) {
-            Log("Paso 4: Buscando resultado de batalla (15 intentos, 10s entre cada uno)...")
-            SetTimer, LoopPrincipal, 10000
+            Log("Paso 4: Buscando resultado de batalla (40 intentos, 3s entre cada uno)...")
+            SetTimer, LoopPrincipal, 3000
         }
 
-        EstadoActual := "Paso 4: Esperando resultado... (" . ResultadoIntentos . "/15)"
+        EstadoActual := "Paso 4: Esperando resultado... (" . ResultadoIntentos . "/40)"
         ActualizarEstado()
 
         ; Buscar DERROTA (solo detectar, NO hacer clic)
         if (BuscarImagenEnVentana(IMG_DERROTA, foundX, foundY)) {
-            Log("DERROTA detectada en intento " . ResultadoIntentos . "/15")
+            Log("DERROTA detectada en intento " . ResultadoIntentos . "/40")
             ErroresConsecutivos := 0
             ResultadoIntentos := 0
             TapIntentos := 0
@@ -800,7 +818,7 @@ LoopPrincipal:
 
         ; Buscar VICTORIA
         if (BuscarImagenEnVentana(IMG_VICTORIA, foundX, foundY)) {
-            Log("VICTORIA detectada en intento " . ResultadoIntentos . "/15")
+            Log("VICTORIA detectada en intento " . ResultadoIntentos . "/40")
             HacerClicEnVentana(foundX, foundY)
             ErroresConsecutivos := 0
             ContadorAtaques++
@@ -814,9 +832,9 @@ LoopPrincipal:
             return
         }
 
-        ; Si se agotaron los 15 intentos sin resultado
-        if (ResultadoIntentos >= 15) {
-            Log("RECUPERACION: Sin resultado tras 15 intentos (150s). Reiniciando desde paso 1...")
+        ; Si se agotaron los 40 intentos sin resultado (120s)
+        if (ResultadoIntentos >= 40) {
+            Log("RECUPERACION: Sin resultado tras 40 intentos (120s). Reiniciando desde paso 1...")
             PasoActual := 1
             ErroresConsecutivos := 0
             ResultadoIntentos := 0
