@@ -10,7 +10,8 @@ Flujo del bot:
   Paso 4:    Esperar resultado (escanea victoria/derrota)
   Paso 5:    Tap hasta Next (victoria y derrota)
   Derrota:   Vuelve a paso 1 (Nivel)
-  Victoria:  Pasos 6-8 (nueva batalla/ok/charizard) -> paso 2 (Auto)
+  Victoria:  Pasos 6-8 (nueva batalla/ok/seleccion batalla) -> paso 2 (Auto)
+  El paso 8 rota entre 5 batallas distintas en cada ciclo
 
 IMAGENES NECESARIAS (formato BMP recomendado):
 ------------------------------------------------------------
@@ -51,8 +52,22 @@ IMAGENES NECESARIAS (formato BMP recomendado):
 7. boton_ok.bmp
    -> Boton "OK" que cierra la pantalla de nueva batalla
 
-8. boton_charizard_ex.bmp
-   -> Imagen de "Charizard EX" para seleccionarlo
+8. ROTACION DE BATALLAS (el bot rota entre estas 5 en cada ciclo):
+
+   8a. boton_charizard_ex.bmp
+       -> Imagen de "Charizard EX"
+
+   8b. boton_batalla2.bmp
+       -> Imagen de la batalla 2 (pendiente de nombre)
+
+   8c. boton_batalla3.bmp
+       -> Imagen de la batalla 3 (pendiente de nombre)
+
+   8d. boton_batalla4.bmp
+       -> Imagen de la batalla 4 (pendiente de nombre)
+
+   8e. boton_batalla5.bmp
+       -> Imagen de la batalla 5 (pendiente de nombre)
 
 
 COMO HACER LAS CAPTURAS:

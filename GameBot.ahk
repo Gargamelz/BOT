@@ -53,8 +53,8 @@ PasoImagenes[6]  := ""  ; Paso especial: detectar nueva batalla desbloqueada
 PasoNombres[6]   := "NuevaBatalla"
 PasoImagenes[7]  := CarpetaImagenes . "\boton_ok.bmp"
 PasoNombres[7]   := "OK"
-PasoImagenes[8]  := CarpetaImagenes . "\boton_charizard_ex.bmp"
-PasoNombres[8]   := "CharizardEX"
+PasoImagenes[8]  := ""  ; Paso especial: selección de batalla (rotación)
+PasoNombres[8]   := "SeleccionBatalla"
 
 ; Imágenes de resultado de batalla (usadas en paso 4)
 global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
@@ -64,10 +64,26 @@ global IMG_DERROTA  := CarpetaImagenes . "\pantalla_derrota.bmp"
 global IMG_TAP  := CarpetaImagenes . "\boton_tap.bmp"
 global IMG_NEXT := CarpetaImagenes . "\boton_next.bmp"
 
-; Imágenes post-victoria (usadas en pasos 6-8)
+; Imágenes post-victoria (usadas en pasos 6-7)
 global IMG_NUEVA_BATALLA := CarpetaImagenes . "\pantalla_nueva_batalla.bmp"
 global IMG_OK            := CarpetaImagenes . "\boton_ok.bmp"
-global IMG_CHARIZARD     := CarpetaImagenes . "\boton_charizard_ex.bmp"
+
+; Rotación de batallas (paso 8 rota entre estas imágenes cada ciclo)
+global BatallaImagenes := {}
+global BatallaNombres := {}
+global TotalBatallas := 5
+global BatallaActual := 1
+
+BatallaImagenes[1] := CarpetaImagenes . "\boton_charizard_ex.bmp"
+BatallaNombres[1]  := "CharizardEX"
+BatallaImagenes[2] := CarpetaImagenes . "\boton_batalla2.bmp"
+BatallaNombres[2]  := "Batalla2"
+BatallaImagenes[3] := CarpetaImagenes . "\boton_batalla3.bmp"
+BatallaNombres[3]  := "Batalla3"
+BatallaImagenes[4] := CarpetaImagenes . "\boton_batalla4.bmp"
+BatallaNombres[4]  := "Batalla4"
+BatallaImagenes[5] := CarpetaImagenes . "\boton_batalla5.bmp"
+BatallaNombres[5]  := "Batalla5"
 
 ; Scroll automático
 global ScrollActivo := false
@@ -311,7 +327,7 @@ CrearGUI() {
     Gui, Main:Add, GroupBox, x10 y440 w460 h50, INICIAR EN PASO
     Gui, Main:Font, s9 cSilver Normal
     Gui, Main:Add, Text, x25 y463 cSilver, Paso:
-    Gui, Main:Add, DropDownList, x65 y460 w395 vDDLPasoInicio Choose1, 1: Nivel|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: CharizardEX
+    Gui, Main:Add, DropDownList, x65 y460 w395 vDDLPasoInicio Choose1, 1: Nivel|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SeleccionBatalla
 
     ; --- SECCIÓN: Control del Bot ---
     Gui, Main:Font, s10 cWhite Bold
@@ -397,7 +413,8 @@ ActualizarEstado() {
 VerificarImagenes() {
     global PasoImagenes, PasoNombres, TotalPasos, CarpetaImagenes
     global IMG_VICTORIA, IMG_DERROTA, IMG_TAP, IMG_NEXT
-    global IMG_NUEVA_BATALLA, IMG_OK, IMG_CHARIZARD
+    global IMG_NUEVA_BATALLA, IMG_OK
+    global BatallaImagenes, BatallaNombres, TotalBatallas
 
     faltantes := 0
     Loop, %TotalPasos% {
@@ -411,6 +428,10 @@ VerificarImagenes() {
         }
         if (A_Index = 6) {
             Log("OK: Paso 6 -> NuevaBatalla (deteccion opcional)")
+            continue
+        }
+        if (A_Index = 8) {
+            Log("OK: Paso 8 -> SeleccionBatalla (rotacion)")
             continue
         }
         ruta := PasoImagenes[A_Index]
@@ -464,11 +485,17 @@ VerificarImagenes() {
     } else {
         Log("OK: boton_ok.bmp")
     }
-    if !FileExist(IMG_CHARIZARD) {
-        Log("AVISO: Falta imagen -> boton_charizard_ex.bmp")
-        faltantes++
-    } else {
-        Log("OK: boton_charizard_ex.bmp")
+
+    ; Verificar imágenes de rotación de batallas
+    Loop, %TotalBatallas% {
+        rutaBatalla := BatallaImagenes[A_Index]
+        nombreBatalla := BatallaNombres[A_Index]
+        if !FileExist(rutaBatalla) {
+            Log("AVISO: Falta imagen batalla " . A_Index . " -> " . nombreBatalla)
+            faltantes++
+        } else {
+            Log("OK: Batalla " . A_Index . " -> " . nombreBatalla)
+        }
     }
 
     if (faltantes > 0)
@@ -922,18 +949,89 @@ LoopPrincipal:
 
         ; Si no aparece tras MaxNuevaBatallaIntentos, saltar directamente a CharizardEX
         if (NuevaBatallaIntentos >= MaxNuevaBatallaIntentos) {
-            Log("Nueva batalla no encontrada tras " . MaxNuevaBatallaIntentos . " intentos. Saltando a CharizardEX...")
+            Log("Nueva batalla no encontrada tras " . MaxNuevaBatallaIntentos . " intentos. Saltando a SeleccionBatalla...")
             NuevaBatallaIntentos := 0
             ErroresConsecutivos := 0
             PasoActual := 8
-            Log(">>> Saltando a paso 8: CharizardEX")
+            Log(">>> Saltando a paso 8: SeleccionBatalla")
             ActualizarEstado()
         }
         return
     }
 
     ; ================================================================
-    ; PASOS NORMALES (1-3, 7-8): Buscar imagen y clicar
+    ; PASO 8 ESPECIAL: Selección de batalla (rotación)
+    ; Busca la imagen de la batalla actual de la lista de rotación
+    ; Tras clic, avanza BatallaActual y vuelve a paso 2 (Auto)
+    ; ================================================================
+    if (PasoActual = 8) {
+        imgBatalla := BatallaImagenes[BatallaActual]
+        nombreBatalla := BatallaNombres[BatallaActual]
+
+        if !FileExist(imgBatalla) {
+            Log("ERROR: Falta imagen para batalla " . BatallaActual . " (" . nombreBatalla . "): " . imgBatalla)
+            ContadorErrores++
+            return
+        }
+
+        EstadoActual := "Paso 8: " . nombreBatalla . " (" . BatallaActual . "/" . TotalBatallas . ")"
+        ActualizarEstado()
+
+        imagenEncontrada := false
+        if (ScrollActivo && (ScrollEnPaso = 0 || ScrollEnPaso = PasoActual)) {
+            if (BuscarImagenEnVentana(imgBatalla, foundX, foundY)) {
+                imagenEncontrada := true
+            } else {
+                Loop, %ScrollCantidad% {
+                    HacerScrollEnVentana(ScrollRelX, ScrollRelY, 1)
+                    Sleep, %ScrollDelay%
+                    if (BuscarImagenEnVentana(imgBatalla, foundX, foundY)) {
+                        imagenEncontrada := true
+                        break
+                    }
+                }
+            }
+        } else {
+            if (BuscarImagenEnVentana(imgBatalla, foundX, foundY))
+                imagenEncontrada := true
+        }
+
+        if (imagenEncontrada) {
+            Log("Paso 8: '" . nombreBatalla . "' encontrado. Haciendo clic...")
+            HacerClicEnVentana(foundX, foundY)
+            ContadorAtaques++
+            ErroresConsecutivos := 0
+            Sleep, 2500
+
+            ; Avanzar a siguiente batalla para el próximo ciclo
+            BatallaActual := BatallaActual + 1
+            if (BatallaActual > TotalBatallas)
+                BatallaActual := 1
+            Log(">>> Próxima batalla: " . BatallaNombres[BatallaActual])
+
+            ; Volver al bucle: paso 2 (Auto)
+            PasoActual := 2
+            Log(">>> Volviendo a paso 2: Auto")
+            ActualizarEstado()
+            return
+        }
+
+        ; Si no encuentra, contar error
+        ErroresConsecutivos++
+        ContadorErrores++
+        if (Mod(ErroresConsecutivos, 10) = 0)
+            Log("Paso 8: '" . nombreBatalla . "' no encontrado (" . ErroresConsecutivos . " intentos)")
+        if (ErroresConsecutivos >= MaxErroresConsecutivos) {
+            Log("RECUPERACION: Atascado en paso 8. Reiniciando desde paso 1...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
+        }
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASOS NORMALES (1-3, 7): Buscar imagen y clicar
     ; ================================================================
     imgActual := PasoImagenes[PasoActual]
 
@@ -978,14 +1076,7 @@ LoopPrincipal:
 
         ; Avanzar al siguiente paso
         PasoActual := PasoActual + 1
-
-        ; Ruta post-victoria: después de CharizardEX (paso 8), volver a Auto (paso 2)
-        if (PasoActual > TotalPasos) {
-            PasoActual := 2
-            Log(">>> Ruta post-victoria completada. Volviendo a paso 2: " . PasoNombres[2])
-        } else {
-            Log(">>> Avanzando a paso " . PasoActual . ": " . PasoNombres[PasoActual])
-        }
+        Log(">>> Avanzando a paso " . PasoActual . ": " . PasoNombres[PasoActual])
     } else {
         ErroresConsecutivos++
         ContadorErrores++
