@@ -94,16 +94,6 @@ BatallaNombres[5]  := "Mewtwo EX"
 BatallaImagenes[6] := CarpetaImagenes . "\boton_machamp_ex.bmp"
 BatallaNombres[6]  := "Machamp EX"
 
-; Repeticiones por batalla (cuántas veces se juega antes de avanzar)
-global BatallaRepeticiones := {}
-BatallaRepeticiones[1] := 2  ; Venasaur EX se juega 2 veces
-BatallaRepeticiones[2] := 1  ; Charizard EX
-BatallaRepeticiones[3] := 1  ; Starmie EX
-BatallaRepeticiones[4] := 1  ; Pikachu EX
-BatallaRepeticiones[5] := 1  ; Mewtwo EX
-BatallaRepeticiones[6] := 1  ; Machamp EX
-global RepeticionActual := 1 ; Contador de repetición actual
-
 ; Scroll automático
 global ScrollActivo := false
 global ScrollRelX := 200                 ; Coordenada X relativa a la ventana
@@ -121,9 +111,11 @@ global ContadorErrores := 0
 global ErroresConsecutivos := 0          ; Errores seguidos en el paso actual
 global MaxErroresConsecutivos := 30      ; Limite antes de intentar recuperación
 
-; Paso 1: búsqueda con scroll automático
+; Pasos 1 y 8: búsqueda con scroll automático
 global Paso1Intentos := 0               ; Intentos sin encontrar antes de scroll
 global Paso1MaxIntentosScroll := 3       ; Cada N intentos fallidos, scroll hacia abajo
+global Paso8Intentos := 0               ; Intentos sin encontrar antes de scroll
+global Paso8MaxIntentosScroll := 3       ; Cada N intentos fallidos, scroll hacia abajo
 global ResultadoIntentos := 0
 
 ; Paso 5: tap dinámico hasta Next (máquina de estados)
@@ -760,8 +752,8 @@ IniciarBot:
     ErroresConsecutivos := 0
     ResultadoIntentos := 0
     TapIntentos := 0
-    RepeticionActual := 1
     Paso1Intentos := 0
+    Paso8Intentos := 0
     Log("=== BOT INICIADO ===")
     Log("Ventana: " . VentanaObjetivo)
     Log("Iniciando en paso " . PasoActual . ": " . PasoNombres[PasoActual])
@@ -999,11 +991,20 @@ LoopPrincipal:
     }
 
     ; ================================================================
-    ; PASO 8 ESPECIAL: Selección de batalla (rotación)
-    ; Busca la imagen de la batalla actual de la lista de rotación
+    ; PASO 8 ESPECIAL: Selección de siguiente batalla (rotación)
+    ; Busca la imagen de la siguiente batalla de la lista de rotación
+    ; Si no encuentra tras 3 intentos, scroll abajo y reintenta
     ; Tras clic, avanza BatallaActual y vuelve a paso 2 (Auto)
     ; ================================================================
     if (PasoActual = 8) {
+        ; Avanzar a siguiente batalla al entrar al paso 8
+        if (Paso8Intentos = 0) {
+            BatallaActual := BatallaActual + 1
+            if (BatallaActual > TotalBatallas)
+                BatallaActual := 1
+            Log(">>> Siguiente batalla: " . BatallaNombres[BatallaActual] . " (" . BatallaActual . "/" . TotalBatallas . ")")
+        }
+
         imgBatalla := BatallaImagenes[BatallaActual]
         nombreBatalla := BatallaNombres[BatallaActual]
 
@@ -1013,51 +1014,18 @@ LoopPrincipal:
             return
         }
 
-        repInfo := ""
-        if (BatallaRepeticiones[BatallaActual] > 1)
-            repInfo := " [rep " . RepeticionActual . "/" . BatallaRepeticiones[BatallaActual] . "]"
-        EstadoActual := "Paso 8: " . nombreBatalla . " (" . BatallaActual . "/" . TotalBatallas . ")" . repInfo
+        Paso8Intentos++
+        EstadoActual := "Paso 8: Buscando " . nombreBatalla . "... (" . Paso8Intentos . ")"
         ActualizarEstado()
 
-        imagenEncontrada := false
-        if (ScrollActivo && (ScrollEnPaso = 0 || ScrollEnPaso = PasoActual)) {
-            if (BuscarImagenEnVentana(imgBatalla, foundX, foundY)) {
-                imagenEncontrada := true
-            } else {
-                Loop, %ScrollCantidad% {
-                    HacerScrollEnVentana(ScrollRelX, ScrollRelY, 1)
-                    Sleep, %ScrollDelay%
-                    if (BuscarImagenEnVentana(imgBatalla, foundX, foundY)) {
-                        imagenEncontrada := true
-                        break
-                    }
-                }
-            }
-        } else {
-            if (BuscarImagenEnVentana(imgBatalla, foundX, foundY))
-                imagenEncontrada := true
-        }
-
-        if (imagenEncontrada) {
+        ; Buscar la imagen de la batalla
+        if (BuscarImagenEnVentana(imgBatalla, foundX, foundY)) {
             Log("Paso 8: '" . nombreBatalla . "' encontrado. Haciendo clic...")
             HacerClicEnVentana(foundX, foundY)
             ContadorAtaques++
             ErroresConsecutivos := 0
+            Paso8Intentos := 0
             Sleep, 2500
-
-            ; Verificar repeticiones antes de avanzar a siguiente batalla
-            if (RepeticionActual >= BatallaRepeticiones[BatallaActual]) {
-                ; Todas las repeticiones completadas, avanzar
-                RepeticionActual := 1
-                BatallaActual := BatallaActual + 1
-                if (BatallaActual > TotalBatallas)
-                    BatallaActual := 1
-                Log(">>> Próxima batalla: " . BatallaNombres[BatallaActual])
-            } else {
-                ; Más repeticiones necesarias de la misma batalla
-                RepeticionActual := RepeticionActual + 1
-                Log(">>> Repitiendo " . nombreBatalla . " (" . RepeticionActual . "/" . BatallaRepeticiones[BatallaActual] . ")")
-            }
 
             ; Volver al bucle: paso 2 (Auto)
             PasoActual := 2
@@ -1066,7 +1034,13 @@ LoopPrincipal:
             return
         }
 
-        ; Si no encuentra, contar error
+        ; No encontrado: cada 3 intentos fallidos, scroll hacia abajo
+        if (Mod(Paso8Intentos, Paso8MaxIntentosScroll) = 0) {
+            Log("Paso 8: '" . nombreBatalla . "' no encontrado tras " . Paso8Intentos . " intentos. Haciendo scroll abajo...")
+            HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+            Sleep, %ScrollDelay%
+        }
+
         ErroresConsecutivos++
         ContadorErrores++
         if (Mod(ErroresConsecutivos, 10) = 0)
@@ -1075,6 +1049,7 @@ LoopPrincipal:
             Log("RECUPERACION: Atascado en paso 8. Reiniciando desde paso 1...")
             PasoActual := 1
             ErroresConsecutivos := 0
+            Paso8Intentos := 0
         }
         ActualizarEstado()
         return

@@ -11,8 +11,8 @@ Flujo del bot:
   Paso 5:    Tap hasta Next (victoria y derrota)
   Derrota:   Paso 9 (CerrarX) -> Vuelve a paso 1 (misma batalla)
   Victoria:  Pasos 6-8 (nueva batalla/ok/siguiente batalla) -> paso 2 (Auto)
-  Pasos 1 y 8 rotan entre 6 batallas distintas en cada ciclo
-  Venasaur EX se juega 2 veces antes de avanzar
+  Pasos 1 y 8 rotan entre 6 batallas distintas (1 vez cada una)
+  Pasos 1 y 8 hacen scroll automatico si no encuentran la batalla
 
 IMAGENES NECESARIAS (formato BMP recomendado):
 ------------------------------------------------------------
