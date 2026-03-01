@@ -121,7 +121,9 @@ global ContadorErrores := 0
 global ErroresConsecutivos := 0          ; Errores seguidos en el paso actual
 global MaxErroresConsecutivos := 30      ; Limite antes de intentar recuperación
 
-; Paso 4: contador de intentos (máquina de estados, no-bloqueante)
+; Paso 1: búsqueda con scroll automático
+global Paso1Intentos := 0               ; Intentos sin encontrar antes de scroll
+global Paso1MaxIntentosScroll := 3       ; Cada N intentos fallidos, scroll hacia abajo
 global ResultadoIntentos := 0
 
 ; Paso 5: tap dinámico hasta Next (máquina de estados)
@@ -759,6 +761,7 @@ IniciarBot:
     ResultadoIntentos := 0
     TapIntentos := 0
     RepeticionActual := 1
+    Paso1Intentos := 0
     Log("=== BOT INICIADO ===")
     Log("Ventana: " . VentanaObjetivo)
     Log("Iniciando en paso " . PasoActual . ": " . PasoNombres[PasoActual])
@@ -1111,7 +1114,60 @@ LoopPrincipal:
     }
 
     ; ================================================================
-    ; PASOS NORMALES (1-3, 7): Buscar imagen y clicar
+    ; PASO 1 ESPECIAL: Buscar batalla con scroll automático
+    ; Si no encuentra tras 3 intentos, hace scroll abajo y reintenta
+    ; ================================================================
+    if (PasoActual = 1) {
+        imgBatalla1 := BatallaImagenes[BatallaActual]
+        nombreBatalla1 := BatallaNombres[BatallaActual]
+
+        if !FileExist(imgBatalla1) {
+            Log("ERROR: Falta imagen para batalla " . BatallaActual . " (" . nombreBatalla1 . "): " . imgBatalla1)
+            ContadorErrores++
+            return
+        }
+
+        Paso1Intentos++
+        EstadoActual := "Paso 1: Buscando " . nombreBatalla1 . "... (" . Paso1Intentos . ")"
+        ActualizarEstado()
+
+        ; Buscar la imagen de la batalla
+        if (BuscarImagenEnVentana(imgBatalla1, foundX, foundY)) {
+            Log("Paso 1: '" . nombreBatalla1 . "' encontrado en (" . foundX . ", " . foundY . ")")
+            HacerClicEnVentana(foundX, foundY)
+            ContadorAtaques++
+            ErroresConsecutivos := 0
+            Paso1Intentos := 0
+            Sleep, 2500
+            PasoActual := 2
+            Log(">>> Avanzando a paso 2: Auto")
+            ActualizarEstado()
+            return
+        }
+
+        ; No encontrado: cada 3 intentos fallidos, scroll hacia abajo
+        if (Mod(Paso1Intentos, Paso1MaxIntentosScroll) = 0) {
+            Log("Paso 1: '" . nombreBatalla1 . "' no encontrado tras " . Paso1Intentos . " intentos. Haciendo scroll abajo...")
+            HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+            Sleep, %ScrollDelay%
+        }
+
+        ErroresConsecutivos++
+        ContadorErrores++
+        if (Mod(ErroresConsecutivos, 10) = 0)
+            Log("Paso 1: '" . nombreBatalla1 . "' no encontrado (" . ErroresConsecutivos . " intentos)")
+        if (ErroresConsecutivos >= MaxErroresConsecutivos) {
+            Log("RECUPERACION: Atascado en paso 1. Reiniciando...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
+            Paso1Intentos := 0
+        }
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASOS NORMALES (2-3, 7, 9): Buscar imagen y clicar
     ; ================================================================
     imgActual := PasoImagenes[PasoActual]
 
