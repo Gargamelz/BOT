@@ -6,12 +6,13 @@ Aqui debes colocar las capturas de pantalla (screenshots) de
 los botones del juego que el bot necesita buscar y clicar.
 
 Flujo del bot:
-  Pasos 1-3: Preparar batalla (Nivel, Auto, Iniciar)
+  Pasos 1-3: Preparar batalla (SeleccionBatalla, Auto, Iniciar)
   Paso 4:    Esperar resultado (escanea victoria/derrota)
   Paso 5:    Tap hasta Next (victoria y derrota)
-  Derrota:   Vuelve a paso 1 (Nivel)
-  Victoria:  Pasos 6-8 (nueva batalla/ok/seleccion batalla) -> paso 2 (Auto)
+  Derrota:   Paso 9 (CerrarX) -> Vuelve a paso 1 (misma batalla)
+  Victoria:  Pasos 6-8 (nueva batalla/ok/siguiente batalla) -> paso 2 (Auto)
   Pasos 1 y 8 rotan entre 6 batallas distintas en cada ciclo
+  Venasaur EX se juega 2 veces antes de avanzar
 
 IMAGENES NECESARIAS (formato BMP recomendado):
 ------------------------------------------------------------
@@ -42,6 +43,12 @@ IMAGENES NECESARIAS (formato BMP recomendado):
 
 5b. boton_next.bmp
     -> Boton "Next" que aparece despues de los taps
+
+--- RUTA DERROTA (paso 9) ---
+
+9. boton_equis.bmp
+   -> Boton "X" (equis/cerrar) que aparece despues de derrota
+   -> Se busca y pulsa despues de los taps, antes de volver a paso 1
 
 --- RUTA VICTORIA (pasos 6-8) ---
 

@@ -35,7 +35,7 @@ global VentanaAlto := 540               ; Alto objetivo en píxeles
 global AutoAjustar := false             ; Ajustar automáticamente al iniciar el bot
 
 ; Pasos de automatización (secuencia de botones a buscar y clicar)
-global TotalPasos := 8
+global TotalPasos := 9
 global PasoActual := 1
 global PasoImagenes := {}
 global PasoNombres := {}
@@ -54,7 +54,9 @@ PasoNombres[6]   := "NuevaBatalla"
 PasoImagenes[7]  := CarpetaImagenes . "\boton_ok.bmp"
 PasoNombres[7]   := "OK"
 PasoImagenes[8]  := ""  ; Paso especial: selección de batalla (rotación)
-PasoNombres[8]   := "SeleccionBatalla"
+PasoNombres[8]   := "SiguienteBatalla"
+PasoImagenes[9]  := CarpetaImagenes . "\boton_equis.bmp"  ; Botón X para cerrar tras derrota
+PasoNombres[9]   := "CerrarX"
 
 ; Imágenes de resultado de batalla (usadas en paso 4)
 global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
@@ -67,6 +69,9 @@ global IMG_NEXT := CarpetaImagenes . "\boton_next.bmp"
 ; Imágenes post-victoria (usadas en pasos 6-7)
 global IMG_NUEVA_BATALLA := CarpetaImagenes . "\pantalla_nueva_batalla.bmp"
 global IMG_OK            := CarpetaImagenes . "\boton_ok.bmp"
+
+; Imagen post-derrota (usada en paso 9)
+global IMG_EQUIS := CarpetaImagenes . "\boton_equis.bmp"
 
 ; Rotación de batallas (pasos 1 y 8 usan esta lista)
 ; Paso 1: selecciona batalla actual (inicio/derrota, NO avanza)
@@ -88,6 +93,16 @@ BatallaImagenes[5] := CarpetaImagenes . "\boton_mewtwo_ex.bmp"
 BatallaNombres[5]  := "Mewtwo EX"
 BatallaImagenes[6] := CarpetaImagenes . "\boton_machamp_ex.bmp"
 BatallaNombres[6]  := "Machamp EX"
+
+; Repeticiones por batalla (cuántas veces se juega antes de avanzar)
+global BatallaRepeticiones := {}
+BatallaRepeticiones[1] := 2  ; Venasaur EX se juega 2 veces
+BatallaRepeticiones[2] := 1  ; Charizard EX
+BatallaRepeticiones[3] := 1  ; Starmie EX
+BatallaRepeticiones[4] := 1  ; Pikachu EX
+BatallaRepeticiones[5] := 1  ; Mewtwo EX
+BatallaRepeticiones[6] := 1  ; Machamp EX
+global RepeticionActual := 1 ; Contador de repetición actual
 
 ; Scroll automático
 global ScrollActivo := false
@@ -331,7 +346,7 @@ CrearGUI() {
     Gui, Main:Add, GroupBox, x10 y440 w460 h50, INICIAR EN PASO
     Gui, Main:Font, s9 cSilver Normal
     Gui, Main:Add, Text, x25 y463 cSilver, Paso:
-    Gui, Main:Add, DropDownList, x65 y460 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla
+    Gui, Main:Add, DropDownList, x65 y460 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla|9: CerrarX
 
     ; --- SECCIÓN: Control del Bot ---
     Gui, Main:Font, s10 cWhite Bold
@@ -417,7 +432,7 @@ ActualizarEstado() {
 VerificarImagenes() {
     global PasoImagenes, PasoNombres, TotalPasos, CarpetaImagenes
     global IMG_VICTORIA, IMG_DERROTA, IMG_TAP, IMG_NEXT
-    global IMG_NUEVA_BATALLA, IMG_OK
+    global IMG_NUEVA_BATALLA, IMG_OK, IMG_EQUIS
     global BatallaImagenes, BatallaNombres, TotalBatallas
 
     faltantes := 0
@@ -439,7 +454,7 @@ VerificarImagenes() {
             continue
         }
         if (A_Index = 8) {
-            Log("OK: Paso 8 -> SeleccionBatalla (rotacion)")
+            Log("OK: Paso 8 -> SiguienteBatalla (rotacion)")
             continue
         }
         ruta := PasoImagenes[A_Index]
@@ -492,6 +507,14 @@ VerificarImagenes() {
         faltantes++
     } else {
         Log("OK: boton_ok.bmp")
+    }
+
+    ; Verificar imagen post-derrota (botón X)
+    if !FileExist(IMG_EQUIS) {
+        Log("AVISO: Falta imagen -> boton_equis.bmp")
+        faltantes++
+    } else {
+        Log("OK: boton_equis.bmp")
     }
 
     ; Verificar imágenes de rotación de batallas
@@ -735,6 +758,7 @@ IniciarBot:
     ErroresConsecutivos := 0
     ResultadoIntentos := 0
     TapIntentos := 0
+    RepeticionActual := 1
     Log("=== BOT INICIADO ===")
     Log("Ventana: " . VentanaObjetivo)
     Log("Iniciando en paso " . PasoActual . ": " . PasoNombres[PasoActual])
@@ -847,9 +871,9 @@ LoopPrincipal:
             ErroresConsecutivos := 0
             ResultadoIntentos := 0
             TapIntentos := 0
-            RutaPostNext := 1
+            RutaPostNext := 9
             PasoActual := 5
-            Log(">>> Ruta derrota: avanzando a paso 5 (Tap hasta Next -> Nivel)")
+            Log(">>> Ruta derrota: avanzando a paso 5 (Tap hasta Next -> CerrarX -> SeleccionBatalla)")
             SetTimer, LoopPrincipal, %IntervaloLoop%
             ActualizarEstado()
             return
@@ -986,7 +1010,10 @@ LoopPrincipal:
             return
         }
 
-        EstadoActual := "Paso 8: " . nombreBatalla . " (" . BatallaActual . "/" . TotalBatallas . ")"
+        repInfo := ""
+        if (BatallaRepeticiones[BatallaActual] > 1)
+            repInfo := " [rep " . RepeticionActual . "/" . BatallaRepeticiones[BatallaActual] . "]"
+        EstadoActual := "Paso 8: " . nombreBatalla . " (" . BatallaActual . "/" . TotalBatallas . ")" . repInfo
         ActualizarEstado()
 
         imagenEncontrada := false
@@ -1015,11 +1042,19 @@ LoopPrincipal:
             ErroresConsecutivos := 0
             Sleep, 2500
 
-            ; Avanzar a siguiente batalla para el próximo ciclo
-            BatallaActual := BatallaActual + 1
-            if (BatallaActual > TotalBatallas)
-                BatallaActual := 1
-            Log(">>> Próxima batalla: " . BatallaNombres[BatallaActual])
+            ; Verificar repeticiones antes de avanzar a siguiente batalla
+            if (RepeticionActual >= BatallaRepeticiones[BatallaActual]) {
+                ; Todas las repeticiones completadas, avanzar
+                RepeticionActual := 1
+                BatallaActual := BatallaActual + 1
+                if (BatallaActual > TotalBatallas)
+                    BatallaActual := 1
+                Log(">>> Próxima batalla: " . BatallaNombres[BatallaActual])
+            } else {
+                ; Más repeticiones necesarias de la misma batalla
+                RepeticionActual := RepeticionActual + 1
+                Log(">>> Repitiendo " . nombreBatalla . " (" . RepeticionActual . "/" . BatallaRepeticiones[BatallaActual] . ")")
+            }
 
             ; Volver al bucle: paso 2 (Auto)
             PasoActual := 2
@@ -1035,6 +1070,39 @@ LoopPrincipal:
             Log("Paso 8: '" . nombreBatalla . "' no encontrado (" . ErroresConsecutivos . " intentos)")
         if (ErroresConsecutivos >= MaxErroresConsecutivos) {
             Log("RECUPERACION: Atascado en paso 8. Reiniciando desde paso 1...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
+        }
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASO 9 ESPECIAL: Cerrar X después de derrota
+    ; Busca el botón X (equis) y lo pulsa, luego vuelve a paso 1
+    ; ================================================================
+    if (PasoActual = 9) {
+        EstadoActual := "Paso 9: Buscando botón X para cerrar..."
+        ActualizarEstado()
+
+        if (BuscarImagenEnVentana(IMG_EQUIS, foundX, foundY)) {
+            Log("Paso 9: Botón X encontrado. Haciendo clic...")
+            HacerClicEnVentana(foundX, foundY)
+            Sleep, 2500
+            ErroresConsecutivos := 0
+            PasoActual := 1
+            Log(">>> Cerrado. Volviendo a paso 1: SeleccionBatalla")
+            ActualizarEstado()
+            return
+        }
+
+        ; Si no se encuentra, contar error
+        ErroresConsecutivos++
+        ContadorErrores++
+        if (Mod(ErroresConsecutivos, 10) = 0)
+            Log("Paso 9: Botón X no encontrado (" . ErroresConsecutivos . " intentos)")
+        if (ErroresConsecutivos >= MaxErroresConsecutivos) {
+            Log("RECUPERACION: Botón X no encontrado tras " . MaxErroresConsecutivos . " intentos. Volviendo a paso 1...")
             PasoActual := 1
             ErroresConsecutivos := 0
         }
