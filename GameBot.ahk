@@ -111,11 +111,9 @@ global ContadorErrores := 0
 global ErroresConsecutivos := 0          ; Errores seguidos en el paso actual
 global MaxErroresConsecutivos := 30      ; Limite antes de intentar recuperación
 
-; Pasos 1 y 8: búsqueda con scroll automático
-global Paso1Intentos := 0               ; Intentos sin encontrar antes de scroll
-global Paso1MaxIntentosScroll := 3       ; Cada N intentos fallidos, scroll hacia abajo
-global Paso8Intentos := 0               ; Intentos sin encontrar antes de scroll
-global Paso8MaxIntentosScroll := 3       ; Cada N intentos fallidos, scroll hacia abajo
+; Pasos 1 y 8: búsqueda con scroll automático (scroll en cada intento fallido)
+global Paso1Intentos := 0
+global Paso8Intentos := 0
 global ResultadoIntentos := 0
 
 ; Paso 5: tap dinámico hasta Next (máquina de estados)
@@ -993,7 +991,7 @@ LoopPrincipal:
     ; ================================================================
     ; PASO 8 ESPECIAL: Selección de siguiente batalla (rotación)
     ; Busca la imagen de la siguiente batalla de la lista de rotación
-    ; Si no encuentra tras 3 intentos, scroll abajo y reintenta
+    ; Si no encuentra, hace scroll abajo y reintenta hasta encontrar
     ; Tras clic, avanza BatallaActual y vuelve a paso 2 (Auto)
     ; ================================================================
     if (PasoActual = 8) {
@@ -1034,17 +1032,13 @@ LoopPrincipal:
             return
         }
 
-        ; No encontrado: cada 3 intentos fallidos, scroll hacia abajo
-        if (Mod(Paso8Intentos, Paso8MaxIntentosScroll) = 0) {
-            Log("Paso 8: '" . nombreBatalla . "' no encontrado tras " . Paso8Intentos . " intentos. Haciendo scroll abajo...")
-            HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
-            Sleep, %ScrollDelay%
-        }
+        ; No encontrado: scroll hacia abajo en cada intento
+        Log("Paso 8: '" . nombreBatalla . "' no encontrado. Scroll abajo... (" . Paso8Intentos . ")")
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+        Sleep, %ScrollDelay%
 
         ErroresConsecutivos++
         ContadorErrores++
-        if (Mod(ErroresConsecutivos, 10) = 0)
-            Log("Paso 8: '" . nombreBatalla . "' no encontrado (" . ErroresConsecutivos . " intentos)")
         if (ErroresConsecutivos >= MaxErroresConsecutivos) {
             Log("RECUPERACION: Atascado en paso 8. Reiniciando desde paso 1...")
             PasoActual := 1
@@ -1090,7 +1084,7 @@ LoopPrincipal:
 
     ; ================================================================
     ; PASO 1 ESPECIAL: Buscar batalla con scroll automático
-    ; Si no encuentra tras 3 intentos, hace scroll abajo y reintenta
+    ; Si no encuentra, hace scroll abajo y reintenta hasta encontrar
     ; ================================================================
     if (PasoActual = 1) {
         imgBatalla1 := BatallaImagenes[BatallaActual]
@@ -1120,17 +1114,13 @@ LoopPrincipal:
             return
         }
 
-        ; No encontrado: cada 3 intentos fallidos, scroll hacia abajo
-        if (Mod(Paso1Intentos, Paso1MaxIntentosScroll) = 0) {
-            Log("Paso 1: '" . nombreBatalla1 . "' no encontrado tras " . Paso1Intentos . " intentos. Haciendo scroll abajo...")
-            HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
-            Sleep, %ScrollDelay%
-        }
+        ; No encontrado: scroll hacia abajo en cada intento
+        Log("Paso 1: '" . nombreBatalla1 . "' no encontrado. Scroll abajo... (" . Paso1Intentos . ")")
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+        Sleep, %ScrollDelay%
 
         ErroresConsecutivos++
         ContadorErrores++
-        if (Mod(ErroresConsecutivos, 10) = 0)
-            Log("Paso 1: '" . nombreBatalla1 . "' no encontrado (" . ErroresConsecutivos . " intentos)")
         if (ErroresConsecutivos >= MaxErroresConsecutivos) {
             Log("RECUPERACION: Atascado en paso 1. Reiniciando...")
             PasoActual := 1
