@@ -1292,7 +1292,9 @@ HacerClicEnVentana(screenX, screenY) {
 
 ; ============================================================================
 ; FUNCIÓN: Hacer swipe virtual en la ventana para simular scroll
-; No mueve el mouse real. Usa ControlClick D/U NA + SendMessage WM_MOUSEMOVE
+; No mueve el mouse real. Encuentra la ventana hija del emulador (como
+; ControlClick hace internamente) y envía WM_LBUTTONDOWN/MOUSEMOVE/LBUTTONUP
+; directamente al HWND correcto via DllCall.
 ; relX: coordenada X relativa a la ventana
 ; relY: punto medio Y del swipe (relativo a la ventana)
 ; cantidad: multiplicador de distancia (cada unidad = 40px de arrastre)
@@ -1307,53 +1309,73 @@ HacerScrollEnVentana(relX, relY, cantidad) {
     if (yFin < 10)
         yFin := 10
 
-    ; Parámetros del movimiento gradual
-    pasoSize := 8                         ; Píxeles por paso
-    pasos := Abs(yInicio - yFin) // pasoSize
-    if (pasos < 1)
-        pasos := 1
-
-    ; --- Método 1: ControlClick D/U con NA (virtual, sin mover mouse real) ---
-    ControlClick, x%relX% y%yInicio%, %VentanaObjetivo%,, Left, 1, D NA
-
-    if (!ErrorLevel) {
-        ; ControlClick D funcionó — hacer movimiento con SendMessage (síncrono)
-        Sleep, 30
-        Loop, %pasos% {
-            yActual := yInicio - (A_Index * pasoSize)
-            if (yActual < yFin)
-                yActual := yFin
-            lParam := ((yActual & 0xFFFF) << 16) | (relX & 0xFFFF)
-            SendMessage, 0x200, 0x0001, %lParam%,, %VentanaObjetivo%
-            Sleep, 15
-        }
-        Sleep, 30
-        ControlClick, x%relX% y%yFin%, %VentanaObjetivo%,, Left, 1, U NA
-        Sleep, 50
-        Log("Swipe (ControlClick): (" . relX . ", " . yInicio . ") -> (" . relX . ", " . yFin . ") dist=" . distancia . "px")
+    ; Obtener HWND de la ventana padre
+    WinGet, hwndPadre, ID, %VentanaObjetivo%
+    if (!hwndPadre) {
+        Log("AVISO: No se encontró la ventana para swipe")
         return
     }
 
-    ; --- Método 2 (fallback): SendMessage puro síncrono ---
-    Log("AVISO: ControlClick D falló. Usando SendMessage para swipe...")
-    lParamDown := ((yInicio & 0xFFFF) << 16) | (relX & 0xFFFF)
-    SendMessage, 0x201, 0x0001, %lParamDown%,, %VentanaObjetivo%
+    ; Encontrar la ventana hija en el punto del swipe (como hace ControlClick)
+    ; RealChildWindowFromPoint busca la ventana hija más profunda
+    ; POINT se pasa como Int64: low 32 bits = X, high 32 bits = Y
+    pointVal := ((relY & 0xFFFFFFFF) << 32) | (relX & 0xFFFFFFFF)
+    hwndHijo := DllCall("RealChildWindowFromPoint", "Ptr", hwndPadre, "Int64", pointVal, "Ptr")
+
+    ; Determinar HWND destino y ajustar coordenadas
+    if (hwndHijo && hwndHijo != hwndPadre) {
+        hwndTarget := hwndHijo
+        ; Convertir coordenadas del padre al hijo usando MapWindowPoints
+        VarSetCapacity(ptInicio, 8, 0)
+        NumPut(relX, ptInicio, 0, "Int")
+        NumPut(yInicio, ptInicio, 4, "Int")
+        DllCall("MapWindowPoints", "Ptr", hwndPadre, "Ptr", hwndHijo, "Ptr", &ptInicio, "UInt", 1)
+        childX := NumGet(ptInicio, 0, "Int")
+        childYInicio := NumGet(ptInicio, 4, "Int")
+
+        VarSetCapacity(ptFin, 8, 0)
+        NumPut(relX, ptFin, 0, "Int")
+        NumPut(yFin, ptFin, 4, "Int")
+        DllCall("MapWindowPoints", "Ptr", hwndPadre, "Ptr", hwndHijo, "Ptr", &ptFin, "UInt", 1)
+        childYFin := NumGet(ptFin, 4, "Int")
+
+        metodo := "ChildWindow"
+    } else {
+        hwndTarget := hwndPadre
+        childX := relX
+        childYInicio := yInicio
+        childYFin := yFin
+        metodo := "ParentWindow"
+    }
+
+    ; Enviar WM_LBUTTONDOWN al HWND correcto (síncrono)
+    lParamDown := ((childYInicio & 0xFFFF) << 16) | (childX & 0xFFFF)
+    DllCall("SendMessageW", "Ptr", hwndTarget, "UInt", 0x201, "Ptr", 0x0001, "Ptr", lParamDown)
     Sleep, 50
 
+    ; Movimiento gradual hacia arriba (pasos de 8px con 15ms de delay)
+    totalDist := Abs(childYInicio - childYFin)
+    pasoSize := 8
+    pasos := totalDist // pasoSize
+    if (pasos < 1)
+        pasos := 1
+
     Loop, %pasos% {
-        yActual := yInicio - (A_Index * pasoSize)
-        if (yActual < yFin)
-            yActual := yFin
-        lParam := ((yActual & 0xFFFF) << 16) | (relX & 0xFFFF)
-        SendMessage, 0x200, 0x0001, %lParam%,, %VentanaObjetivo%
+        yActual := childYInicio - (A_Index * pasoSize)
+        if (yActual < childYFin)
+            yActual := childYFin
+        lParam := ((yActual & 0xFFFF) << 16) | (childX & 0xFFFF)
+        DllCall("SendMessageW", "Ptr", hwndTarget, "UInt", 0x200, "Ptr", 0x0001, "Ptr", lParam)
         Sleep, 15
     }
 
+    ; Enviar WM_LBUTTONUP
     Sleep, 30
-    lParamUp := ((yFin & 0xFFFF) << 16) | (relX & 0xFFFF)
-    SendMessage, 0x202, 0x0000, %lParamUp%,, %VentanaObjetivo%
+    lParamUp := ((childYFin & 0xFFFF) << 16) | (childX & 0xFFFF)
+    DllCall("SendMessageW", "Ptr", hwndTarget, "UInt", 0x202, "Ptr", 0x0000, "Ptr", lParamUp)
     Sleep, 50
-    Log("Swipe (SendMessage): (" . relX . ", " . yInicio . ") -> (" . relX . ", " . yFin . ") dist=" . distancia . "px")
+
+    Log("Swipe (" . metodo . "): (" . relX . ", " . yInicio . ") -> (" . relX . ", " . yFin . ") dist=" . distancia . "px")
 }
 
 ; ============================================================================
