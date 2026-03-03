@@ -1291,8 +1291,8 @@ HacerClicEnVentana(screenX, screenY) {
 }
 
 ; ============================================================================
-; FUNCIÓN: Hacer swipe (arrastrar) en la ventana para simular scroll
-; Usa el mouse real: activa la ventana, arrastra de abajo hacia arriba
+; FUNCIÓN: Hacer swipe virtual en la ventana para simular scroll
+; No mueve el mouse real. Usa ControlClick D/U NA + SendMessage WM_MOUSEMOVE
 ; relX: coordenada X relativa a la ventana
 ; relY: punto medio Y del swipe (relativo a la ventana)
 ; cantidad: multiplicador de distancia (cada unidad = 40px de arrastre)
@@ -1307,25 +1307,53 @@ HacerScrollEnVentana(relX, relY, cantidad) {
     if (yFin < 10)
         yFin := 10
 
-    ; Obtener posición de la ventana
-    WinGetPos, wx, wy,,, %VentanaObjetivo%
+    ; Parámetros del movimiento gradual
+    pasoSize := 8                         ; Píxeles por paso
+    pasos := Abs(yInicio - yFin) // pasoSize
+    if (pasos < 1)
+        pasos := 1
 
-    ; Convertir a coordenadas de pantalla
-    screenX := relX + wx
-    screenYInicio := yInicio + wy
-    screenYFin := yFin + wy
+    ; --- Método 1: ControlClick D/U con NA (virtual, sin mover mouse real) ---
+    ControlClick, x%relX% y%yInicio%, %VentanaObjetivo%,, Left, 1, D NA
 
-    ; Activar la ventana para que reciba el input
-    WinActivate, %VentanaObjetivo%
-    Sleep, 100
+    if (!ErrorLevel) {
+        ; ControlClick D funcionó — hacer movimiento con SendMessage (síncrono)
+        Sleep, 30
+        Loop, %pasos% {
+            yActual := yInicio - (A_Index * pasoSize)
+            if (yActual < yFin)
+                yActual := yFin
+            lParam := ((yActual & 0xFFFF) << 16) | (relX & 0xFFFF)
+            SendMessage, 0x200, 0x0001, %lParam%,, %VentanaObjetivo%
+            Sleep, 15
+        }
+        Sleep, 30
+        ControlClick, x%relX% y%yFin%, %VentanaObjetivo%,, Left, 1, U NA
+        Sleep, 50
+        Log("Swipe (ControlClick): (" . relX . ", " . yInicio . ") -> (" . relX . ", " . yFin . ") dist=" . distancia . "px")
+        return
+    }
 
-    ; Usar MouseClickDrag para arrastrar (mouse real)
-    ; Speed 20 = arrastre suave (0=instantáneo, 100=muy lento)
-    CoordMode, Mouse, Screen
-    MouseClickDrag, Left, screenX, screenYInicio, screenX, screenYFin, 20
-    Sleep, 200
+    ; --- Método 2 (fallback): SendMessage puro síncrono ---
+    Log("AVISO: ControlClick D falló. Usando SendMessage para swipe...")
+    lParamDown := ((yInicio & 0xFFFF) << 16) | (relX & 0xFFFF)
+    SendMessage, 0x201, 0x0001, %lParamDown%,, %VentanaObjetivo%
+    Sleep, 50
 
-    Log("Swipe: (" . relX . ", " . yInicio . ") -> (" . relX . ", " . yFin . ") distancia=" . distancia . "px")
+    Loop, %pasos% {
+        yActual := yInicio - (A_Index * pasoSize)
+        if (yActual < yFin)
+            yActual := yFin
+        lParam := ((yActual & 0xFFFF) << 16) | (relX & 0xFFFF)
+        SendMessage, 0x200, 0x0001, %lParam%,, %VentanaObjetivo%
+        Sleep, 15
+    }
+
+    Sleep, 30
+    lParamUp := ((yFin & 0xFFFF) << 16) | (relX & 0xFFFF)
+    SendMessage, 0x202, 0x0000, %lParamUp%,, %VentanaObjetivo%
+    Sleep, 50
+    Log("Swipe (SendMessage): (" . relX . ", " . yInicio . ") -> (" . relX . ", " . yFin . ") dist=" . distancia . "px")
 }
 
 ; ============================================================================
