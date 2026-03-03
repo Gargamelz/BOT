@@ -307,22 +307,22 @@ CrearGUI() {
     chkDebugVal := ModoDebug ? "Checked" : ""
     Gui, Main:Add, CheckBox, x240 y255 vChkDebug %chkDebugVal% cWhite, Modo Debug (logs visibles)
 
-    ; --- SECCIÓN: Scroll Automático ---
+    ; --- SECCIÓN: Swipe/Scroll Automático ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y310 w460 h120, SCROLL AUTOMÁTICO
+    Gui, Main:Add, GroupBox, x10 y310 w460 h120, SWIPE AUTOMÁTICO (scroll)
 
     Gui, Main:Font, s9 cSilver Normal
     chkScrollVal := ScrollActivo ? "Checked" : ""
-    Gui, Main:Add, CheckBox, x25 y335 vChkScroll %chkScrollVal% cWhite, Activar scroll
+    Gui, Main:Add, CheckBox, x25 y335 vChkScroll %chkScrollVal% cWhite, Activar swipe
     Gui, Main:Add, Text, x150 y336 cSilver, X (rel):
     Gui, Main:Add, Edit, x195 y333 w55 h22 vEditScrollX, %ScrollRelX%
     Gui, Main:Add, Text, x260 y336 cSilver, Y (rel):
     Gui, Main:Add, Edit, x305 y333 w55 h22 vEditScrollY, %ScrollRelY%
-    Gui, Main:Add, Text, x370 y336 cSilver, Clicks:
+    Gui, Main:Add, Text, x370 y336 cSilver, Fuerza:
     Gui, Main:Add, Edit, x415 y333 w45 h22 vEditScrollCant, %ScrollCantidad%
     Gui, Main:Add, UpDown, Range1-20, %ScrollCantidad%
 
-    Gui, Main:Add, Text, x25 y363 cSilver, Scroll en paso:
+    Gui, Main:Add, Text, x25 y363 cSilver, Swipe en paso:
     scrollPasoIndice := ScrollEnPaso + 1
     Gui, Main:Add, DropDownList, x120 y360 w195 vDDLScrollPaso Choose%scrollPasoIndice%, Todos los ciclos|Paso 1: Nivel|Paso 2: Auto|Paso 3: Iniciar
     Gui, Main:Add, Text, x325 y363 cSilver, Delay (ms):
@@ -331,7 +331,7 @@ CrearGUI() {
 
     Gui, Main:Font, s9 cWhite Normal
     Gui, Main:Add, Button, x25 y395 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
-    Gui, Main:Add, Button, x235 y395 w225 h25 gProbarScroll, Probar Scroll
+    Gui, Main:Add, Button, x235 y395 w225 h25 gProbarScroll, Probar Swipe
 
     ; --- SECCIÓN: Paso Inicial ---
     Gui, Main:Font, s10 cWhite Bold
@@ -1291,30 +1291,59 @@ HacerClicEnVentana(screenX, screenY) {
 }
 
 ; ============================================================================
-; FUNCIÓN: Hacer scroll en la ventana en coordenadas relativas
-; Usa WM_MOUSEWHEEL (0x20A) via PostMessage para funcionar en segundo plano
-; Las coordenadas se convierten a pantalla en cada llamada para que funcione
-; aunque la ventana se haya movido
+; FUNCIÓN: Hacer swipe (arrastrar) en la ventana para simular scroll
+; Simula un gesto de dedo: click en punto inferior, arrastrar hacia arriba, soltar
+; Esto baja el contenido de la pantalla (scroll hacia abajo)
+; relX: coordenada X relativa a la ventana
+; relY: punto medio Y del swipe (relativo a la ventana)
+; cantidad: multiplicador de distancia (cada unidad = 40px de arrastre)
 ; ============================================================================
 HacerScrollEnVentana(relX, relY, cantidad) {
     global VentanaObjetivo
 
-    ; Obtener posición actual de la ventana para convertir a coordenadas de pantalla
+    ; Calcular distancia total del swipe
+    distancia := cantidad * 40
+    yInicio := relY + (distancia // 2)   ; Punto inferior (donde empieza el dedo)
+    yFin := relY - (distancia // 2)      ; Punto superior (donde termina el dedo)
+
+    ; Obtener posición de la ventana
     WinGetPos, wx, wy,,, %VentanaObjetivo%
+
+    ; Convertir a coordenadas de pantalla
     screenX := relX + wx
-    screenY := relY + wy
+    screenYInicio := yInicio + wy
+    screenYFin := yFin + wy
 
-    ; WM_MOUSEWHEEL = 0x20A
-    ; wParam alto: delta (-120 por click hacia abajo)
-    ; lParam: posición del cursor en coordenadas de pantalla
-    wheelDelta := -120 * cantidad
-    wParam := (wheelDelta << 16) & 0xFFFFFFFF
-    lParam := ((screenY & 0xFFFF) << 16) | (screenX & 0xFFFF)
+    ; Simular swipe: MouseDown -> mover gradualmente -> MouseUp
+    ; WM_LBUTTONDOWN = 0x201, WM_MOUSEMOVE = 0x200, WM_LBUTTONUP = 0x202
+    ; MK_LBUTTON = 0x0001
 
-    PostMessage, 0x20A, %wParam%, %lParam%,, %VentanaObjetivo%
+    ; 1. Mouse down en punto de inicio
+    lParamInicio := ((yInicio & 0xFFFF) << 16) | (relX & 0xFFFF)
+    PostMessage, 0x201, 0x0001, %lParamInicio%,, %VentanaObjetivo%
+    Sleep, 50
+
+    ; 2. Mover gradualmente hacia arriba (pasos de 10px para suavizar)
+    pasos := distancia // 10
+    if (pasos < 1)
+        pasos := 1
+    Loop, %pasos% {
+        yActual := yInicio - (A_Index * 10)
+        if (yActual < yFin)
+            yActual := yFin
+        lParamMover := ((yActual & 0xFFFF) << 16) | (relX & 0xFFFF)
+        PostMessage, 0x200, 0x0001, %lParamMover%,, %VentanaObjetivo%
+        Sleep, 15
+    }
+
+    ; 3. Mouse up en punto final
+    lParamFin := ((yFin & 0xFFFF) << 16) | (relX & 0xFFFF)
+    PostMessage, 0x202, 0x0000, %lParamFin%,, %VentanaObjetivo%
 
     if (ErrorLevel)
-        Log("AVISO: Scroll falló en (" . relX . ", " . relY . ")")
+        Log("AVISO: Swipe falló en (" . relX . ", " . yInicio . " -> " . yFin . ")")
+    else
+        Log("Swipe: (" . relX . ", " . yInicio . ") -> (" . relX . ", " . yFin . ") distancia=" . distancia . "px")
 }
 
 ; ============================================================================
@@ -1385,9 +1414,9 @@ ProbarScroll:
     tmpScrollX := RegExReplace(tmpScrollX, ",", "") + 0
     tmpScrollY := RegExReplace(tmpScrollY, ",", "") + 0
 
-    Log("Probando scroll en (" . tmpScrollX . ", " . tmpScrollY . ") x" . tmpScrollCant . " clicks...")
+    Log("Probando swipe en (" . tmpScrollX . ", " . tmpScrollY . ") x" . tmpScrollCant . "...")
     HacerScrollEnVentana(tmpScrollX, tmpScrollY, tmpScrollCant)
-    Log("Scroll de prueba enviado")
+    Log("Swipe de prueba enviado")
 return
 
 ; ============================================================================
