@@ -1292,8 +1292,7 @@ HacerClicEnVentana(screenX, screenY) {
 
 ; ============================================================================
 ; FUNCIÓN: Hacer swipe (arrastrar) en la ventana para simular scroll
-; Simula un gesto de dedo: click en punto inferior, arrastrar hacia arriba, soltar
-; Esto baja el contenido de la pantalla (scroll hacia abajo)
+; Usa el mouse real: activa la ventana, arrastra de abajo hacia arriba
 ; relX: coordenada X relativa a la ventana
 ; relY: punto medio Y del swipe (relativo a la ventana)
 ; cantidad: multiplicador de distancia (cada unidad = 40px de arrastre)
@@ -1305,6 +1304,8 @@ HacerScrollEnVentana(relX, relY, cantidad) {
     distancia := cantidad * 40
     yInicio := relY + (distancia // 2)   ; Punto inferior (donde empieza el dedo)
     yFin := relY - (distancia // 2)      ; Punto superior (donde termina el dedo)
+    if (yFin < 10)
+        yFin := 10
 
     ; Obtener posición de la ventana
     WinGetPos, wx, wy,,, %VentanaObjetivo%
@@ -1314,36 +1315,17 @@ HacerScrollEnVentana(relX, relY, cantidad) {
     screenYInicio := yInicio + wy
     screenYFin := yFin + wy
 
-    ; Simular swipe: MouseDown -> mover gradualmente -> MouseUp
-    ; WM_LBUTTONDOWN = 0x201, WM_MOUSEMOVE = 0x200, WM_LBUTTONUP = 0x202
-    ; MK_LBUTTON = 0x0001
+    ; Activar la ventana para que reciba el input
+    WinActivate, %VentanaObjetivo%
+    Sleep, 100
 
-    ; 1. Mouse down en punto de inicio
-    lParamInicio := ((yInicio & 0xFFFF) << 16) | (relX & 0xFFFF)
-    PostMessage, 0x201, 0x0001, %lParamInicio%,, %VentanaObjetivo%
-    Sleep, 50
+    ; Usar MouseClickDrag para arrastrar (mouse real)
+    ; Speed 20 = arrastre suave (0=instantáneo, 100=muy lento)
+    CoordMode, Mouse, Screen
+    MouseClickDrag, Left, screenX, screenYInicio, screenX, screenYFin, 20
+    Sleep, 200
 
-    ; 2. Mover gradualmente hacia arriba (pasos de 10px para suavizar)
-    pasos := distancia // 10
-    if (pasos < 1)
-        pasos := 1
-    Loop, %pasos% {
-        yActual := yInicio - (A_Index * 10)
-        if (yActual < yFin)
-            yActual := yFin
-        lParamMover := ((yActual & 0xFFFF) << 16) | (relX & 0xFFFF)
-        PostMessage, 0x200, 0x0001, %lParamMover%,, %VentanaObjetivo%
-        Sleep, 15
-    }
-
-    ; 3. Mouse up en punto final
-    lParamFin := ((yFin & 0xFFFF) << 16) | (relX & 0xFFFF)
-    PostMessage, 0x202, 0x0000, %lParamFin%,, %VentanaObjetivo%
-
-    if (ErrorLevel)
-        Log("AVISO: Swipe falló en (" . relX . ", " . yInicio . " -> " . yFin . ")")
-    else
-        Log("Swipe: (" . relX . ", " . yInicio . ") -> (" . relX . ", " . yFin . ") distancia=" . distancia . "px")
+    Log("Swipe: (" . relX . ", " . yInicio . ") -> (" . relX . ", " . yFin . ") distancia=" . distancia . "px")
 }
 
 ; ============================================================================
@@ -1360,26 +1342,26 @@ SeleccionarPuntoScroll:
         return
     }
 
-    Log(">>> Haz clic en el punto de scroll dentro de 5 segundos...")
-    MsgBox, 64, Seleccionar Punto Scroll, Después de cerrar este mensaje tienes 5 segundos para hacer clic en el punto de la ventana del juego donde quieres hacer scroll., 5
+    Log(">>> Coloca el mouse en el punto de swipe y espera 3 segundos...")
+    MsgBox, 64, Seleccionar Punto Swipe, Coloca el mouse sobre el punto de la ventana del juego donde quieres hacer swipe.`n`nTienes 3 segundos después de cerrar este mensaje., 5
 
-    Sleep, 5000
+    Sleep, 3000
 
     ; Capturar posición del mouse
-    MouseGetPos, mouseX, mouseY, hwndBajo
-    WinGetTitle, tituloBajo, ahk_id %hwndBajo%
-
-    ; Verificar que el clic fue en la ventana correcta
-    if (tituloBajo != VentanaObjetivo) {
-        Log("ERROR: Hiciste clic fuera de la ventana objetivo")
-        MsgBox, 16, Error, Hiciste clic fuera de la ventana del juego.`nIntenta de nuevo.
-        return
-    }
+    CoordMode, Mouse, Screen
+    MouseGetPos, mouseX, mouseY
 
     ; Obtener posición de la ventana para calcular coordenadas relativas
-    WinGetPos, wx, wy,,, %VentanaObjetivo%
+    WinGetPos, wx, wy, ww, wh, %VentanaObjetivo%
     nuevoX := mouseX - wx
     nuevoY := mouseY - wy
+
+    ; Verificar que el punto está dentro de la ventana
+    if (nuevoX < 0 || nuevoY < 0 || nuevoX > ww || nuevoY > wh) {
+        Log("ERROR: El mouse está fuera de la ventana objetivo")
+        MsgBox, 16, Error, El mouse está fuera de la ventana del juego.`nIntenta de nuevo.
+        return
+    }
 
     ; Actualizar campos en la GUI
     GuiControl, Main:, EditScrollX, %nuevoX%
@@ -1389,8 +1371,8 @@ SeleccionarPuntoScroll:
     ScrollRelX := nuevoX
     ScrollRelY := nuevoY
 
-    Log("Punto de scroll seleccionado: (" . nuevoX . ", " . nuevoY . ")")
-    MsgBox, 64, Punto Seleccionado, Punto de scroll establecido en:`nX: %nuevoX%  Y: %nuevoY%`n`n(Coordenadas relativas a la ventana)
+    Log("Punto de swipe seleccionado: (" . nuevoX . ", " . nuevoY . ")")
+    MsgBox, 64, Punto Seleccionado, Punto de swipe establecido en:`nX: %nuevoX%  Y: %nuevoY%`n`n(Coordenadas relativas a la ventana)
 return
 
 ; ============================================================================
