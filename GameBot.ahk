@@ -96,8 +96,8 @@ global ExpansionNombres := {}
 ExpansionNombres[1]  := "Genetic Apex"
 ExpansionNombres[2]  := "Mythical Island"
 ExpansionNombres[3]  := "Space Time Smackdown"
-ExpansionNombres[4]  := "Expansion 4"
-ExpansionNombres[5]  := "Expansion 5"
+ExpansionNombres[4]  := "Triumphant Light"
+ExpansionNombres[5]  := "Shining Revelry"
 ExpansionNombres[6]  := "Expansion 6"
 ExpansionNombres[7]  := "Expansion 7"
 ExpansionNombres[8]  := "Expansion 8"
@@ -110,8 +110,8 @@ global ExpansionImagenes := {}
 ExpansionImagenes[1]  := CarpetaImagenes . "\boton_genetic_apex.bmp"
 ExpansionImagenes[2]  := CarpetaImagenes . "\boton_mythical_island.bmp"
 ExpansionImagenes[3]  := CarpetaImagenes . "\boton_space_time_smackdown.bmp"
-ExpansionImagenes[4]  := ""
-ExpansionImagenes[5]  := ""
+ExpansionImagenes[4]  := CarpetaImagenes . "\boton_triumphant_light.bmp"
+ExpansionImagenes[5]  := CarpetaImagenes . "\boton_shining_revelry.bmp"
 ExpansionImagenes[6]  := ""
 ExpansionImagenes[7]  := ""
 ExpansionImagenes[8]  := ""
@@ -676,8 +676,46 @@ CargarBatallasExpansion(exp) {
         BatallaImagenes[8] := CarpetaImagenes . "\boton_dialga_ex.bmp"
         BatallaNombres[8]  := "Dialga EX"
     }
+    else if (exp = 4) {
+        TotalBatallas := 7
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_leafeon_ex.bmp"
+        BatallaNombres[1]  := "Leafeon EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_arceus_infernape.bmp"
+        BatallaNombres[2]  := "Arceus Infernape"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_glaceon_ex.bmp"
+        BatallaNombres[3]  := "Glaceon EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_arceus_pachirisu.bmp"
+        BatallaNombres[4]  := "Arceus Pachirisu"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_garchomp_ex.bmp"
+        BatallaNombres[5]  := "Garchomp EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_arceus_weavile.bmp"
+        BatallaNombres[6]  := "Arceus Weavile"
+        BatallaImagenes[7] := CarpetaImagenes . "\boton_probopass_ex.bmp"
+        BatallaNombres[7]  := "Probopass EX"
+    }
+    else if (exp = 5) {
+        TotalBatallas := 9
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_beedrill_ex.bmp"
+        BatallaNombres[1]  := "Beedrill EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_charizard_arceus.bmp"
+        BatallaNombres[2]  := "Charizard Arceus"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_wugtrio_ex.bmp"
+        BatallaNombres[3]  := "Wugtrio EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_pikachu_magnezone.bmp"
+        BatallaNombres[4]  := "Pikachu Magnezone"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_giratina_ex.bmp"
+        BatallaNombres[5]  := "Giratina EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_lucario_ex.bmp"
+        BatallaNombres[6]  := "Lucario EX"
+        BatallaImagenes[7] := CarpetaImagenes . "\boton_paldean_clodsire_ex.bmp"
+        BatallaNombres[7]  := "Paldean Clodsire EX"
+        BatallaImagenes[8] := CarpetaImagenes . "\boton_tinkaton_ex.bmp"
+        BatallaNombres[8]  := "Tinkaton EX"
+        BatallaImagenes[9] := CarpetaImagenes . "\boton_bibarel_ex.bmp"
+        BatallaNombres[9]  := "Bibarel EX"
+    }
     else {
-        ; Expansiones 4-11: placeholder (sin batallas definidas aún)
+        ; Expansiones 6-11: placeholder (sin batallas definidas aún)
         TotalBatallas := 0
     }
 }
