@@ -95,7 +95,7 @@ global TotalExpansiones := 11
 global ExpansionNombres := {}
 ExpansionNombres[1]  := "Genetic Apex"
 ExpansionNombres[2]  := "Mythical Island"
-ExpansionNombres[3]  := "Expansion 3"
+ExpansionNombres[3]  := "Space Time Smackdown"
 ExpansionNombres[4]  := "Expansion 4"
 ExpansionNombres[5]  := "Expansion 5"
 ExpansionNombres[6]  := "Expansion 6"
@@ -109,7 +109,7 @@ ExpansionNombres[11] := "Expansion 11"
 global ExpansionImagenes := {}
 ExpansionImagenes[1]  := CarpetaImagenes . "\boton_genetic_apex.bmp"
 ExpansionImagenes[2]  := CarpetaImagenes . "\boton_mythical_island.bmp"
-ExpansionImagenes[3]  := ""
+ExpansionImagenes[3]  := CarpetaImagenes . "\boton_space_time_smackdown.bmp"
 ExpansionImagenes[4]  := ""
 ExpansionImagenes[5]  := ""
 ExpansionImagenes[6]  := ""
@@ -657,8 +657,27 @@ CargarBatallasExpansion(exp) {
         BatallaImagenes[8] := CarpetaImagenes . "\boton_blue_deck.bmp"
         BatallaNombres[8]  := "Blue Deck"
     }
+    else if (exp = 3) {
+        TotalBatallas := 8
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_yanmega_ex.bmp"
+        BatallaNombres[1]  := "Yanmega EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_infernape_ex.bmp"
+        BatallaNombres[2]  := "Infernape EX"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_palkia_ex.bmp"
+        BatallaNombres[3]  := "Palkia EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_pachirisu_ex.bmp"
+        BatallaNombres[4]  := "Pachirisu EX"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_mismagius_ex.bmp"
+        BatallaNombres[5]  := "Mismagius EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_gallade_ex.bmp"
+        BatallaNombres[6]  := "Gallade EX"
+        BatallaImagenes[7] := CarpetaImagenes . "\boton_darkrai_ex.bmp"
+        BatallaNombres[7]  := "Darkrai EX"
+        BatallaImagenes[8] := CarpetaImagenes . "\boton_dialga_ex.bmp"
+        BatallaNombres[8]  := "Dialga EX"
+    }
     else {
-        ; Expansiones 3-11: placeholder (sin batallas definidas aún)
+        ; Expansiones 4-11: placeholder (sin batallas definidas aún)
         TotalBatallas := 0
     }
 }
