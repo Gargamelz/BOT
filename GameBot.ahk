@@ -35,7 +35,7 @@ global VentanaAlto := 540               ; Alto objetivo en píxeles
 global AutoAjustar := false             ; Ajustar automáticamente al iniciar el bot
 
 ; Pasos de automatización (secuencia de botones a buscar y clicar)
-global TotalPasos := 9
+global TotalPasos := 10
 global PasoActual := 1
 global PasoImagenes := {}
 global PasoNombres := {}
@@ -57,6 +57,8 @@ PasoImagenes[8]  := ""  ; Paso especial: selección de batalla (rotación)
 PasoNombres[8]   := "SiguienteBatalla"
 PasoImagenes[9]  := CarpetaImagenes . "\boton_equis.bmp"  ; Botón X para cerrar tras derrota
 PasoNombres[9]   := "CerrarX"
+PasoImagenes[10] := ""  ; Paso especial: cambiar expansión
+PasoNombres[10]  := "CambiarExpansion"
 
 ; Imágenes de resultado de batalla (usadas en paso 4)
 global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
@@ -73,26 +75,24 @@ global IMG_OK            := CarpetaImagenes . "\boton_ok.bmp"
 ; Imagen post-derrota (usada en paso 9)
 global IMG_EQUIS := CarpetaImagenes . "\boton_equis.bmp"
 
+; Imagen de expansiones (usada en paso 10)
+global IMG_EXPANSIONES := CarpetaImagenes . "\boton_expansiones.bmp"
+
 ; Rotación de batallas (pasos 1 y 8 usan esta lista)
 ; Paso 1: selecciona batalla actual (inicio/derrota, NO avanza)
 ; Paso 8: selecciona siguiente batalla (victoria, SÍ avanza)
+; Paso 10: cambia de expansión cuando se completa la última batalla
 global BatallaImagenes := {}
 global BatallaNombres := {}
-global TotalBatallas := 6
+global TotalBatallas := 0
 global BatallaActual := 1
 
-BatallaImagenes[1] := CarpetaImagenes . "\boton_venasaur_ex.bmp"
-BatallaNombres[1]  := "Venasaur EX"
-BatallaImagenes[2] := CarpetaImagenes . "\boton_charizard_ex.bmp"
-BatallaNombres[2]  := "Charizard EX"
-BatallaImagenes[3] := CarpetaImagenes . "\boton_starmie_ex.bmp"
-BatallaNombres[3]  := "Starmie EX"
-BatallaImagenes[4] := CarpetaImagenes . "\boton_pikachu_ex.bmp"
-BatallaNombres[4]  := "Pikachu EX"
-BatallaImagenes[5] := CarpetaImagenes . "\boton_mewtwo_ex.bmp"
-BatallaNombres[5]  := "Mewtwo EX"
-BatallaImagenes[6] := CarpetaImagenes . "\boton_machamp_ex.bmp"
-BatallaNombres[6]  := "Machamp EX"
+; Sistema de expansiones (11 expansiones, ~6 batallas cada una)
+global ExpansionActual := 1
+global TotalExpansiones := 11
+
+; Cargar expansión 1 al inicio
+CargarBatallasExpansion(1)
 
 ; Scroll automático
 global ScrollActivo := false
@@ -114,6 +114,7 @@ global MaxErroresConsecutivos := 30      ; Limite antes de intentar recuperació
 ; Pasos 1 y 8: búsqueda con scroll automático (scroll en cada intento fallido)
 global Paso1Intentos := 0
 global Paso8Intentos := 0
+global Paso10Intentos := 0
 global ResultadoIntentos := 0
 
 ; Paso 5: tap dinámico hasta Next (máquina de estados)
@@ -338,7 +339,7 @@ CrearGUI() {
     Gui, Main:Add, GroupBox, x10 y440 w460 h50, INICIAR EN PASO
     Gui, Main:Font, s9 cSilver Normal
     Gui, Main:Add, Text, x25 y463 cSilver, Paso:
-    Gui, Main:Add, DropDownList, x65 y460 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla|9: CerrarX
+    Gui, Main:Add, DropDownList, x65 y460 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla|9: CerrarX|10: CambiarExpansion
 
     ; --- SECCIÓN: Control del Bot ---
     Gui, Main:Font, s10 cWhite Bold
@@ -424,8 +425,8 @@ ActualizarEstado() {
 VerificarImagenes() {
     global PasoImagenes, PasoNombres, TotalPasos, CarpetaImagenes
     global IMG_VICTORIA, IMG_DERROTA, IMG_TAP, IMG_NEXT
-    global IMG_NUEVA_BATALLA, IMG_OK, IMG_EQUIS
-    global BatallaImagenes, BatallaNombres, TotalBatallas
+    global IMG_NUEVA_BATALLA, IMG_OK, IMG_EQUIS, IMG_EXPANSIONES
+    global BatallaImagenes, BatallaNombres, TotalBatallas, ExpansionActual, TotalExpansiones
 
     faltantes := 0
     Loop, %TotalPasos% {
@@ -447,6 +448,10 @@ VerificarImagenes() {
         }
         if (A_Index = 8) {
             Log("OK: Paso 8 -> SiguienteBatalla (rotacion)")
+            continue
+        }
+        if (A_Index = 10) {
+            Log("OK: Paso 10 -> CambiarExpansion (rotacion de expansiones)")
             continue
         }
         ruta := PasoImagenes[A_Index]
@@ -509,6 +514,14 @@ VerificarImagenes() {
         Log("OK: boton_equis.bmp")
     }
 
+    ; Verificar imagen de expansiones (paso 10)
+    if !FileExist(IMG_EXPANSIONES) {
+        Log("AVISO: Falta imagen -> boton_expansiones.bmp")
+        faltantes++
+    } else {
+        Log("OK: boton_expansiones.bmp")
+    }
+
     ; Verificar imágenes de rotación de batallas
     Loop, %TotalBatallas% {
         rutaBatalla := BatallaImagenes[A_Index]
@@ -525,6 +538,39 @@ VerificarImagenes() {
         Log("Faltan " . faltantes . " imágenes en: " . CarpetaImagenes)
     else
         Log("Todas las imágenes encontradas correctamente")
+}
+
+; ============================================================================
+; FUNCIÓN: Cargar batallas de una expansión en los arrays activos
+; Pobla BatallaImagenes[] y BatallaNombres[] según la expansión indicada
+; Las expansiones sin datos definidos quedan con TotalBatallas := 0
+; ============================================================================
+CargarBatallasExpansion(exp) {
+    global BatallaImagenes, BatallaNombres, TotalBatallas, BatallaActual, CarpetaImagenes
+
+    BatallaImagenes := {}
+    BatallaNombres := {}
+    BatallaActual := 1
+
+    if (exp = 1) {
+        TotalBatallas := 6
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_venasaur_ex.bmp"
+        BatallaNombres[1]  := "Venasaur EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_charizard_ex.bmp"
+        BatallaNombres[2]  := "Charizard EX"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_starmie_ex.bmp"
+        BatallaNombres[3]  := "Starmie EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_pikachu_ex.bmp"
+        BatallaNombres[4]  := "Pikachu EX"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_mewtwo_ex.bmp"
+        BatallaNombres[5]  := "Mewtwo EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_machamp_ex.bmp"
+        BatallaNombres[6]  := "Machamp EX"
+    }
+    else {
+        ; Expansiones 2-11: placeholder (sin batallas definidas aún)
+        TotalBatallas := 0
+    }
 }
 
 ; ============================================================================
@@ -733,7 +779,7 @@ IniciarBot:
     ; Leer paso inicial seleccionado
     GuiControlGet, DDLPasoInicio, Main:
     PasoInicioSeleccionado := 1
-    Loop, 8 {
+    Loop, 10 {
         if InStr(DDLPasoInicio, A_Index . ":") {
             PasoInicioSeleccionado := A_Index
             break
@@ -752,8 +798,10 @@ IniciarBot:
     TapIntentos := 0
     Paso1Intentos := 0
     Paso8Intentos := 0
+    Paso10Intentos := 0
     Log("=== BOT INICIADO ===")
     Log("Ventana: " . VentanaObjetivo)
+    Log("Expansion: " . ExpansionActual . "/" . TotalExpansiones . " | Batalla: " . BatallaActual . "/" . TotalBatallas)
     Log("Iniciando en paso " . PasoActual . ": " . PasoNombres[PasoActual])
     Log("Variación: " . Variacion . " | Intervalo: " . IntervaloLoop . "ms | Reintentos: " . MaxReintentos)
     if (ScrollActivo) {
@@ -788,6 +836,7 @@ DetenerBot:
     EstadoActual := "IDLE"
     ResultadoIntentos := 0
     TapIntentos := 0
+    Paso10Intentos := 0
     SetTimer, LoopPrincipal, Off
     Log("=== BOT DETENIDO ===")
     ActualizarEstado()
@@ -838,7 +887,7 @@ LoopPrincipal:
     PasoNombres[1]  := BatallaNombres[BatallaActual]
 
     nombreActual := PasoNombres[PasoActual]
-    EstadoActual := "Paso " . PasoActual . "/" . TotalPasos . ": " . nombreActual
+    EstadoActual := "Paso " . PasoActual . "/" . TotalPasos . ": " . nombreActual . " [Exp " . ExpansionActual . "]"
     ActualizarEstado()
 
     ; ================================================================
@@ -998,9 +1047,38 @@ LoopPrincipal:
         ; Avanzar a siguiente batalla al entrar al paso 8
         if (Paso8Intentos = 0) {
             BatallaActual := BatallaActual + 1
-            if (BatallaActual > TotalBatallas)
-                BatallaActual := 1
-            Log(">>> Siguiente batalla: " . BatallaNombres[BatallaActual] . " (" . BatallaActual . "/" . TotalBatallas . ")")
+            if (BatallaActual > TotalBatallas) {
+                ; Última batalla de esta expansión completada -> cambiar expansión
+                Log(">>> Expansion " . ExpansionActual . " completada (" . TotalBatallas . " batallas)")
+
+                ; Avanzar a siguiente expansión (saltar las vacías)
+                ExpansionActual := ExpansionActual + 1
+                if (ExpansionActual > TotalExpansiones)
+                    ExpansionActual := 1
+                expansionesRevisadas := 0
+                CargarBatallasExpansion(ExpansionActual)
+                while (TotalBatallas = 0 && expansionesRevisadas < TotalExpansiones) {
+                    Log(">>> Expansion " . ExpansionActual . " sin batallas. Saltando...")
+                    ExpansionActual := ExpansionActual + 1
+                    if (ExpansionActual > TotalExpansiones)
+                        ExpansionActual := 1
+                    CargarBatallasExpansion(ExpansionActual)
+                    expansionesRevisadas++
+                }
+
+                if (TotalBatallas = 0) {
+                    Log("ERROR: Ninguna expansion tiene batallas definidas.")
+                    return
+                }
+
+                ; Ir a paso 10: buscar botón "expansiones"
+                Paso8Intentos := 0
+                PasoActual := 10
+                Log(">>> Avanzando a paso 10: CambiarExpansion (Exp " . ExpansionActual . ")")
+                ActualizarEstado()
+                return
+            }
+            Log(">>> Siguiente batalla: " . BatallaNombres[BatallaActual] . " (" . BatallaActual . "/" . TotalBatallas . ") [Exp " . ExpansionActual . "]")
         }
 
         imgBatalla := BatallaImagenes[BatallaActual]
@@ -1077,6 +1155,54 @@ LoopPrincipal:
             Log("RECUPERACION: Botón X no encontrado tras " . MaxErroresConsecutivos . " intentos. Volviendo a paso 1...")
             PasoActual := 1
             ErroresConsecutivos := 0
+        }
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASO 10 ESPECIAL: Cambiar expansión
+    ; Busca el botón "expansiones" y lo pulsa
+    ; TODO: Después de pulsar, se deben agregar pasos para seleccionar
+    ; la expansión específica del menú
+    ; ================================================================
+    if (PasoActual = 10) {
+        Paso10Intentos++
+
+        if (Paso10Intentos = 1)
+            Log("Paso 10: Buscando botón 'Expansiones' para cambiar a expansión " . ExpansionActual . "...")
+
+        EstadoActual := "Paso 10: Buscando Expansiones... (" . Paso10Intentos . ")"
+        ActualizarEstado()
+
+        if (BuscarImagenEnVentana(IMG_EXPANSIONES, foundX, foundY)) {
+            Log("Paso 10: 'Expansiones' encontrado. Haciendo clic...")
+            HacerClicEnVentana(foundX, foundY)
+            Sleep, 2500
+            Paso10Intentos := 0
+            ErroresConsecutivos := 0
+
+            ; TODO: Agregar pasos adicionales para seleccionar la expansión específica
+            ; Por ahora, asumir que la expansión correcta queda disponible y volver a paso 1
+            Log("[TODO] Selección de expansión en menú pendiente de implementar")
+            Log(">>> Expansión " . ExpansionActual . " cargada (" . TotalBatallas . " batallas). Volviendo a paso 1.")
+            PasoActual := 1
+            ActualizarEstado()
+            return
+        }
+
+        ; No encontrado: scroll y reintentar
+        Log("Paso 10: 'Expansiones' no encontrado. Scroll abajo... (" . Paso10Intentos . ")")
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+        Sleep, %ScrollDelay%
+
+        ErroresConsecutivos++
+        ContadorErrores++
+        if (ErroresConsecutivos >= MaxErroresConsecutivos) {
+            Log("RECUPERACION: Atascado en paso 10. Reiniciando desde paso 1...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
+            Paso10Intentos := 0
         }
         ActualizarEstado()
         return
