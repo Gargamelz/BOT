@@ -35,7 +35,7 @@ global VentanaAlto := 540               ; Alto objetivo en píxeles
 global AutoAjustar := false             ; Ajustar automáticamente al iniciar el bot
 
 ; Pasos de automatización (secuencia de botones a buscar y clicar)
-global TotalPasos := 10
+global TotalPasos := 11
 global PasoActual := 1
 global PasoImagenes := {}
 global PasoNombres := {}
@@ -57,8 +57,10 @@ PasoImagenes[8]  := ""  ; Paso especial: selección de batalla (rotación)
 PasoNombres[8]   := "SiguienteBatalla"
 PasoImagenes[9]  := CarpetaImagenes . "\boton_equis.bmp"  ; Botón X para cerrar tras derrota
 PasoNombres[9]   := "CerrarX"
-PasoImagenes[10] := ""  ; Paso especial: cambiar expansión
+PasoImagenes[10] := ""  ; Paso especial: cambiar expansión (tap "expansiones")
 PasoNombres[10]  := "CambiarExpansion"
+PasoImagenes[11] := ""  ; Paso especial: seleccionar expansión destino en menú
+PasoNombres[11]  := "SeleccionarExpansion"
 
 ; Imágenes de resultado de batalla (usadas en paso 4)
 global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
@@ -103,6 +105,20 @@ ExpansionNombres[9]  := "Expansion 9"
 ExpansionNombres[10] := "Expansion 10"
 ExpansionNombres[11] := "Expansion 11"
 
+; Imágenes de cada expansión en el menú de selección (usadas en paso 11)
+global ExpansionImagenes := {}
+ExpansionImagenes[1]  := CarpetaImagenes . "\boton_genetic_apex.bmp"
+ExpansionImagenes[2]  := CarpetaImagenes . "\boton_mythical_island.bmp"
+ExpansionImagenes[3]  := ""
+ExpansionImagenes[4]  := ""
+ExpansionImagenes[5]  := ""
+ExpansionImagenes[6]  := ""
+ExpansionImagenes[7]  := ""
+ExpansionImagenes[8]  := ""
+ExpansionImagenes[9]  := ""
+ExpansionImagenes[10] := ""
+ExpansionImagenes[11] := ""
+
 ; Cargar expansión 1 al inicio
 CargarBatallasExpansion(1)
 
@@ -127,6 +143,7 @@ global MaxErroresConsecutivos := 30      ; Limite antes de intentar recuperació
 global Paso1Intentos := 0
 global Paso8Intentos := 0
 global Paso10Intentos := 0
+global Paso11Intentos := 0
 global ResultadoIntentos := 0
 
 ; Paso 5: tap dinámico hasta Next (máquina de estados)
@@ -374,7 +391,7 @@ CrearGUI() {
 
     ; Fila 2: Paso
     Gui, Main:Add, Text, x25 y493 cSilver, Paso:
-    Gui, Main:Add, DropDownList, x65 y490 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla|9: CerrarX|10: CambiarExpansion
+    Gui, Main:Add, DropDownList, x65 y490 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla|9: CerrarX|10: CambiarExpansion|11: SeleccionarExpansion
 
     ; --- SECCIÓN: Control del Bot ---
     Gui, Main:Font, s10 cWhite Bold
@@ -462,6 +479,7 @@ VerificarImagenes() {
     global IMG_VICTORIA, IMG_DERROTA, IMG_TAP, IMG_NEXT
     global IMG_NUEVA_BATALLA, IMG_OK, IMG_EQUIS, IMG_EXPANSIONES
     global BatallaImagenes, BatallaNombres, TotalBatallas, ExpansionActual, TotalExpansiones
+    global ExpansionImagenes, ExpansionNombres
 
     faltantes := 0
     Loop, %TotalPasos% {
@@ -487,6 +505,10 @@ VerificarImagenes() {
         }
         if (A_Index = 10) {
             Log("OK: Paso 10 -> CambiarExpansion (rotacion de expansiones)")
+            continue
+        }
+        if (A_Index = 11) {
+            Log("OK: Paso 11 -> SeleccionarExpansion (seleccion en menu)")
             continue
         }
         ruta := PasoImagenes[A_Index]
@@ -566,6 +588,20 @@ VerificarImagenes() {
             faltantes++
         } else {
             Log("OK: Batalla " . A_Index . " -> " . nombreBatalla)
+        }
+    }
+
+    ; Verificar imágenes de expansiones (para paso 11)
+    Loop, %TotalExpansiones% {
+        rutaExp := ExpansionImagenes[A_Index]
+        nombreExp := ExpansionNombres[A_Index]
+        if (rutaExp = "") {
+            Log("INFO: Expansion " . A_Index . " (" . nombreExp . ") sin imagen (placeholder)")
+        } else if !FileExist(rutaExp) {
+            Log("AVISO: Falta imagen expansion " . A_Index . " -> " . nombreExp)
+            faltantes++
+        } else {
+            Log("OK: Expansion " . A_Index . " -> " . nombreExp)
         }
     }
 
@@ -851,7 +887,7 @@ IniciarBot:
     ; Leer paso inicial seleccionado
     GuiControlGet, DDLPasoInicio, Main:
     PasoInicioSeleccionado := 1
-    Loop, 10 {
+    Loop, 11 {
         if InStr(DDLPasoInicio, A_Index . ":") {
             PasoInicioSeleccionado := A_Index
             break
@@ -871,6 +907,7 @@ IniciarBot:
     Paso1Intentos := 0
     Paso8Intentos := 0
     Paso10Intentos := 0
+    Paso11Intentos := 0
     Log("=== BOT INICIADO ===")
     Log("Ventana: " . VentanaObjetivo)
     Log("Expansion: " . ExpansionActual . "/" . TotalExpansiones . " (" . ExpansionNombres[ExpansionActual] . ") | Batalla: " . BatallaActual . "/" . TotalBatallas . " (" . BatallaNombres[BatallaActual] . ")")
@@ -909,6 +946,7 @@ DetenerBot:
     ResultadoIntentos := 0
     TapIntentos := 0
     Paso10Intentos := 0
+    Paso11Intentos := 0
     SetTimer, LoopPrincipal, Off
     Log("=== BOT DETENIDO ===")
     ActualizarEstado()
@@ -1234,9 +1272,7 @@ LoopPrincipal:
 
     ; ================================================================
     ; PASO 10 ESPECIAL: Cambiar expansión
-    ; Busca el botón "expansiones" y lo pulsa
-    ; TODO: Después de pulsar, se deben agregar pasos para seleccionar
-    ; la expansión específica del menú
+    ; Busca el botón "expansiones" y lo pulsa, luego va a paso 11
     ; ================================================================
     if (PasoActual = 10) {
         Paso10Intentos++
@@ -1254,11 +1290,9 @@ LoopPrincipal:
             Paso10Intentos := 0
             ErroresConsecutivos := 0
 
-            ; TODO: Agregar pasos adicionales para seleccionar la expansión específica
-            ; Por ahora, asumir que la expansión correcta queda disponible y volver a paso 1
-            Log("[TODO] Selección de expansión en menú pendiente de implementar")
-            Log(">>> Expansión " . ExpansionActual . " cargada (" . TotalBatallas . " batallas). Volviendo a paso 1.")
-            PasoActual := 1
+            ; Avanzar a paso 11: seleccionar la expansión destino en el menú
+            Log(">>> Avanzando a paso 11: SeleccionarExpansion (" . ExpansionNombres[ExpansionActual] . ")")
+            PasoActual := 11
             ActualizarEstado()
             return
         }
@@ -1275,6 +1309,59 @@ LoopPrincipal:
             PasoActual := 1
             ErroresConsecutivos := 0
             Paso10Intentos := 0
+        }
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASO 11 ESPECIAL: Seleccionar expansión destino en el menú
+    ; Busca la imagen de la expansión destino y hace tap
+    ; ================================================================
+    if (PasoActual = 11) {
+        Paso11Intentos++
+        nombreExp := ExpansionNombres[ExpansionActual]
+        imgExp := ExpansionImagenes[ExpansionActual]
+
+        if (imgExp = "" || !FileExist(imgExp)) {
+            Log("ERROR: Falta imagen para expansión " . ExpansionActual . " (" . nombreExp . ")")
+            Log(">>> Saltando a paso 1 sin seleccionar expansión")
+            Paso11Intentos := 0
+            PasoActual := 1
+            ActualizarEstado()
+            return
+        }
+
+        if (Paso11Intentos = 1)
+            Log("Paso 11: Buscando '" . nombreExp . "' en menú de expansiones...")
+
+        EstadoActual := "Paso 11: Buscando " . nombreExp . "... (" . Paso11Intentos . ")"
+        ActualizarEstado()
+
+        if (BuscarImagenEnVentana(imgExp, foundX, foundY)) {
+            Log("Paso 11: '" . nombreExp . "' encontrado. Haciendo clic...")
+            HacerClicEnVentana(foundX, foundY)
+            Sleep, 2500
+            Paso11Intentos := 0
+            ErroresConsecutivos := 0
+            PasoActual := 1
+            Log(">>> Expansión " . nombreExp . " seleccionada. Volviendo a paso 1.")
+            ActualizarEstado()
+            return
+        }
+
+        ; No encontrado: scroll y reintentar
+        Log("Paso 11: '" . nombreExp . "' no encontrado. Scroll abajo... (" . Paso11Intentos . ")")
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+        Sleep, %ScrollDelay%
+
+        ErroresConsecutivos++
+        ContadorErrores++
+        if (ErroresConsecutivos >= MaxErroresConsecutivos) {
+            Log("RECUPERACION: Atascado en paso 11. Reiniciando desde paso 1...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
+            Paso11Intentos := 0
         }
         ActualizarEstado()
         return
