@@ -90,6 +90,18 @@ global BatallaActual := 1
 ; Sistema de expansiones (11 expansiones, ~6 batallas cada una)
 global ExpansionActual := 1
 global TotalExpansiones := 11
+global ExpansionNombres := {}
+ExpansionNombres[1]  := "Genetic Apex"
+ExpansionNombres[2]  := "Mythical Island"
+ExpansionNombres[3]  := "Expansion 3"
+ExpansionNombres[4]  := "Expansion 4"
+ExpansionNombres[5]  := "Expansion 5"
+ExpansionNombres[6]  := "Expansion 6"
+ExpansionNombres[7]  := "Expansion 7"
+ExpansionNombres[8]  := "Expansion 8"
+ExpansionNombres[9]  := "Expansion 9"
+ExpansionNombres[10] := "Expansion 10"
+ExpansionNombres[11] := "Expansion 11"
 
 ; Cargar expansión 1 al inicio
 CargarBatallasExpansion(1)
@@ -334,38 +346,61 @@ CrearGUI() {
     Gui, Main:Add, Button, x25 y395 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
     Gui, Main:Add, Button, x235 y395 w225 h25 gProbarScroll, Probar Swipe
 
-    ; --- SECCIÓN: Paso Inicial ---
+    ; --- SECCIÓN: Inicio (Expansión, Batalla, Paso) ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y440 w460 h50, INICIAR EN PASO
+    Gui, Main:Add, GroupBox, x10 y440 w460 h100, INICIO (EXPANSIÓN / BATALLA / PASO)
+
     Gui, Main:Font, s9 cSilver Normal
-    Gui, Main:Add, Text, x25 y463 cSilver, Paso:
-    Gui, Main:Add, DropDownList, x65 y460 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla|9: CerrarX|10: CambiarExpansion
+    ; Fila 1: Expansión y Batalla
+    Gui, Main:Add, Text, x25 y463 cSilver, Expansión:
+    ; Construir lista de expansiones disponibles (las que tienen batallas)
+    listaExp := ""
+    Loop, %TotalExpansiones% {
+        if (listaExp != "")
+            listaExp .= "|"
+        listaExp .= A_Index . ": " . ExpansionNombres[A_Index]
+    }
+    Gui, Main:Add, DropDownList, x90 y460 w200 vDDLExpansion Choose1 gCambiarExpansionGUI, %listaExp%
+
+    Gui, Main:Add, Text, x300 y463 cSilver, Batalla:
+    ; Construir lista de batallas de la expansión actual
+    listaBat := ""
+    Loop, %TotalBatallas% {
+        if (listaBat != "")
+            listaBat .= "|"
+        listaBat .= A_Index . ": " . BatallaNombres[A_Index]
+    }
+    Gui, Main:Add, DropDownList, x350 y460 w110 vDDLBatalla Choose1, %listaBat%
+
+    ; Fila 2: Paso
+    Gui, Main:Add, Text, x25 y493 cSilver, Paso:
+    Gui, Main:Add, DropDownList, x65 y490 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla|9: CerrarX|10: CambiarExpansion
 
     ; --- SECCIÓN: Control del Bot ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y500 w460 h60, CONTROL DEL BOT
+    Gui, Main:Add, GroupBox, x10 y550 w460 h60, CONTROL DEL BOT
 
     Gui, Main:Font, s9 cWhite Normal
-    Gui, Main:Add, Button, x25 y525 w140 h25 gIniciarBot, INICIAR (F12)
-    Gui, Main:Add, Button, x175 y525 w140 h25 gPausarBot, PAUSAR (F12)
-    Gui, Main:Add, Button, x325 y525 w135 h25 gDetenerBot, DETENER (F11)
+    Gui, Main:Add, Button, x25 y575 w140 h25 gIniciarBot, INICIAR (F12)
+    Gui, Main:Add, Button, x175 y575 w140 h25 gPausarBot, PAUSAR (F12)
+    Gui, Main:Add, Button, x325 y575 w135 h25 gDetenerBot, DETENER (F11)
 
     ; --- SECCIÓN: Estado ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y570 w460 h50, ESTADO
+    Gui, Main:Add, GroupBox, x10 y620 w460 h50, ESTADO
 
     Gui, Main:Font, s11 c0x00FF88 Bold
-    Gui, Main:Add, Text, x25 y592 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
+    Gui, Main:Add, Text, x25 y642 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
 
     ; --- SECCIÓN: Log de Depuración ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y630 w460 h220, LOG DE DEPURACIÓN
+    Gui, Main:Add, GroupBox, x10 y680 w460 h220, LOG DE DEPURACIÓN
 
     Gui, Main:Font, s8 c0x00FF88 Normal, Consolas
-    Gui, Main:Add, Edit, x25 y655 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
+    Gui, Main:Add, Edit, x25 y705 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
 
     ; --- Mostrar ventana ---
-    Gui, Main:Show, w480 h865, Game Bot - AutoHotkey v1.1
+    Gui, Main:Show, w480 h915, Game Bot - AutoHotkey v1.1
     Log("=== Game Bot iniciado ===")
     Log("Carpeta de imágenes: " . CarpetaImagenes)
     Log("Presiona F12 para iniciar/pausar, F11 para detener")
@@ -567,8 +602,27 @@ CargarBatallasExpansion(exp) {
         BatallaImagenes[6] := CarpetaImagenes . "\boton_machamp_ex.bmp"
         BatallaNombres[6]  := "Machamp EX"
     }
+    else if (exp = 2) {
+        TotalBatallas := 8
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_venusaur_ex_mi.bmp"
+        BatallaNombres[1]  := "Venusaur EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_celebi_ex.bmp"
+        BatallaNombres[2]  := "Celebi EX"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_volcarona_ex.bmp"
+        BatallaNombres[3]  := "Volcarona EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_gyarados_ex.bmp"
+        BatallaNombres[4]  := "Gyarados EX"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_raichu_ex.bmp"
+        BatallaNombres[5]  := "Raichu EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_mew_ex.bmp"
+        BatallaNombres[6]  := "Mew EX"
+        BatallaImagenes[7] := CarpetaImagenes . "\boton_aerodactyl_ex.bmp"
+        BatallaNombres[7]  := "Aerodactyl EX"
+        BatallaImagenes[8] := CarpetaImagenes . "\boton_blue_deck.bmp"
+        BatallaNombres[8]  := "Blue Deck"
+    }
     else {
-        ; Expansiones 2-11: placeholder (sin batallas definidas aún)
+        ; Expansiones 3-11: placeholder (sin batallas definidas aún)
         TotalBatallas := 0
     }
 }
@@ -776,6 +830,24 @@ IniciarBot:
         }
     }
 
+    ; Leer expansión y batalla seleccionadas
+    GuiControlGet, DDLExpansion, Main:
+    expSeleccionada := 1
+    Loop, %TotalExpansiones% {
+        if InStr(DDLExpansion, A_Index . ":") {
+            expSeleccionada := A_Index
+            break
+        }
+    }
+    ExpansionActual := expSeleccionada
+    CargarBatallasExpansion(ExpansionActual)
+
+    GuiControlGet, DDLBatalla, Main:
+    batallaSeleccionada := RegExReplace(DDLBatalla, "[^0-9]", "") + 0
+    if (batallaSeleccionada < 1 || batallaSeleccionada > TotalBatallas)
+        batallaSeleccionada := 1
+    BatallaActual := batallaSeleccionada
+
     ; Leer paso inicial seleccionado
     GuiControlGet, DDLPasoInicio, Main:
     PasoInicioSeleccionado := 1
@@ -801,7 +873,7 @@ IniciarBot:
     Paso10Intentos := 0
     Log("=== BOT INICIADO ===")
     Log("Ventana: " . VentanaObjetivo)
-    Log("Expansion: " . ExpansionActual . "/" . TotalExpansiones . " | Batalla: " . BatallaActual . "/" . TotalBatallas)
+    Log("Expansion: " . ExpansionActual . "/" . TotalExpansiones . " (" . ExpansionNombres[ExpansionActual] . ") | Batalla: " . BatallaActual . "/" . TotalBatallas . " (" . BatallaNombres[BatallaActual] . ")")
     Log("Iniciando en paso " . PasoActual . ": " . PasoNombres[PasoActual])
     Log("Variación: " . Variacion . " | Intervalo: " . IntervaloLoop . "ms | Reintentos: " . MaxReintentos)
     if (ScrollActivo) {
@@ -1503,6 +1575,40 @@ HacerScrollEnVentana(relX, relY, cantidad) {
 
     Log("Swipe (" . metodo . "): (" . relX . ", " . yInicio . ") -> (" . relX . ", " . yFin . ") dist=" . distancia . "px")
 }
+
+; ============================================================================
+; LABEL: Actualizar dropdown de batallas al cambiar expansión en la GUI
+; ============================================================================
+CambiarExpansionGUI:
+    GuiControlGet, tmpExp, Main:, DDLExpansion
+    expNum := 1
+    Loop, %TotalExpansiones% {
+        if InStr(tmpExp, A_Index . ":") {
+            expNum := A_Index
+            break
+        }
+    }
+
+    ; Cargar la expansión temporalmente para saber cuántas batallas tiene
+    CargarBatallasExpansion(expNum)
+
+    ; Reconstruir dropdown de batallas
+    listaBatallas := ""
+    if (TotalBatallas > 0) {
+        Loop, %TotalBatallas% {
+            if (listaBatallas != "")
+                listaBatallas .= "|"
+            listaBatallas .= A_Index . ": " . BatallaNombres[A_Index]
+        }
+    } else {
+        listaBatallas := "(sin batallas)"
+    }
+    GuiControl, Main:, DDLBatalla, |%listaBatallas%
+    GuiControl, Main:Choose, DDLBatalla, 1
+
+    ; Restaurar la expansión actual del bot (no cambiar hasta que inicie)
+    CargarBatallasExpansion(ExpansionActual)
+return
 
 ; ============================================================================
 ; LABEL: Seleccionar punto de scroll haciendo clic en la ventana del juego
