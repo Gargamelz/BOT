@@ -101,9 +101,9 @@ ExpansionNombres[5]  := "Shining Revelry"
 ExpansionNombres[6]  := "Celestial Guardians"
 ExpansionNombres[7]  := "Extradimensional Crisis"
 ExpansionNombres[8]  := "Eevee Grove"
-ExpansionNombres[9]  := "Expansion 9"
-ExpansionNombres[10] := "Expansion 10"
-ExpansionNombres[11] := "Expansion 11"
+ExpansionNombres[9]  := "Wisdom of Sea and Sky"
+ExpansionNombres[10] := "Manantial Oculto"
+ExpansionNombres[11] := "Deluxe EX"
 
 ; Imágenes de cada expansión en el menú de selección (usadas en paso 11)
 global ExpansionImagenes := {}
@@ -115,9 +115,9 @@ ExpansionImagenes[5]  := CarpetaImagenes . "\boton_shining_revelry.bmp"
 ExpansionImagenes[6]  := CarpetaImagenes . "\boton_celestial_guardians.bmp"
 ExpansionImagenes[7]  := CarpetaImagenes . "\boton_extradimensional_crisis.bmp"
 ExpansionImagenes[8]  := CarpetaImagenes . "\boton_eevee_grove.bmp"
-ExpansionImagenes[9]  := ""
-ExpansionImagenes[10] := ""
-ExpansionImagenes[11] := ""
+ExpansionImagenes[9]  := CarpetaImagenes . "\boton_wisdom_sea_sky.bmp"
+ExpansionImagenes[10] := CarpetaImagenes . "\boton_manantial_oculto.bmp"
+ExpansionImagenes[11] := CarpetaImagenes . "\boton_deluxe_ex.bmp"
 
 ; Cargar expansión 1 al inicio
 CargarBatallasExpansion(1)
@@ -755,8 +755,62 @@ CargarBatallasExpansion(exp) {
         BatallaImagenes[4] := CarpetaImagenes . "\boton_sylveon_ex.bmp"
         BatallaNombres[4]  := "Sylveon EX"
     }
+    else if (exp = 9) {
+        TotalBatallas := 8
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_shuckle_ex.bmp"
+        BatallaNombres[1]  := "Shuckle EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_lugia_ex.bmp"
+        BatallaNombres[2]  := "Lugia EX"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_kingdra_ex.bmp"
+        BatallaNombres[3]  := "Kingdra EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_lanturn_ex.bmp"
+        BatallaNombres[4]  := "Lanturn EX"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_espeon_ex.bmp"
+        BatallaNombres[5]  := "Espeon EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_donphan_ex.bmp"
+        BatallaNombres[6]  := "Donphan EX"
+        BatallaImagenes[7] := CarpetaImagenes . "\boton_umbreon_ex.bmp"
+        BatallaNombres[7]  := "Umbreon EX"
+        BatallaImagenes[8] := CarpetaImagenes . "\boton_skarmory_ex.bmp"
+        BatallaNombres[8]  := "Skarmory EX"
+    }
+    else if (exp = 10) {
+        TotalBatallas := 6
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_jumpluff_ex.bmp"
+        BatallaNombres[1]  := "Jumpluff EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_entei_ex.bmp"
+        BatallaNombres[2]  := "Entei EX"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_suicune_ex.bmp"
+        BatallaNombres[3]  := "Suicune EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_raikou_ex.bmp"
+        BatallaNombres[4]  := "Raikou EX"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_latios_ex.bmp"
+        BatallaNombres[5]  := "Latios EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_poliwrath_ex.bmp"
+        BatallaNombres[6]  := "Poliwrath EX"
+    }
+    else if (exp = 11) {
+        TotalBatallas := 9
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_buzzwole_decidueye.bmp"
+        BatallaNombres[1]  := "Buzzwole Decidueye"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_charizard_moltres.bmp"
+        BatallaNombres[2]  := "Charizard Moltres"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_palkia_articuno.bmp"
+        BatallaNombres[3]  := "Palkia Articuno"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_pikachu_raichu.bmp"
+        BatallaNombres[4]  := "Pikachu Raichu"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_mewtwo_mew.bmp"
+        BatallaNombres[5]  := "Mewtwo Mew"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_lucario_donphan.bmp"
+        BatallaNombres[6]  := "Lucario Donphan"
+        BatallaImagenes[7] := CarpetaImagenes . "\boton_guzzlord_darkrai.bmp"
+        BatallaNombres[7]  := "Guzzlord Darkrai"
+        BatallaImagenes[8] := CarpetaImagenes . "\boton_solgaleo_dialga.bmp"
+        BatallaNombres[8]  := "Solgaleo Dialga"
+        BatallaImagenes[9] := CarpetaImagenes . "\boton_lugia_hooh.bmp"
+        BatallaNombres[9]  := "Lugia HoOh"
+    }
     else {
-        ; Expansiones 9-11: placeholder (sin batallas definidas aún)
         TotalBatallas := 0
     }
 }
