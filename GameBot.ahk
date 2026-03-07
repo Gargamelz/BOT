@@ -45,6 +45,8 @@ global ScrollEnPaso := 0
 global MaxErroresConsecutivos := 30
 global MaxTapIntentos := 30
 global MaxNuevaBatallaIntentos := 10
+global WatchdogSegundos := 300
+global UmbralScanPopups := 15
 
 ; Imágenes fijas (compartidas, no cambian por instancia)
 global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
@@ -145,6 +147,8 @@ global Inst_NBInt := {}
 global Inst_RutaPN := {}
 global Inst_Cooldown := {}
 global Inst_SkipTick := {}
+global Inst_LastExito := {}
+global Inst_RecuperacionTotal := {}
 
 ; Cache de dimensiones de imagen y existencia de archivos
 global ImgDimCache := {}
@@ -179,6 +183,8 @@ Loop, %MAX_INST% {
     Inst_RutaPN[i] := 1
     Inst_Cooldown[i] := 0
     Inst_SkipTick[i] := 0
+    Inst_LastExito[i] := 0
+    Inst_RecuperacionTotal[i] := 0
 }
 
 ; ============================================================================
@@ -724,7 +730,7 @@ ActualizarEstadoInst(i) {
     else
         estado := Inst_Estado[i]
 
-    texto := "#" . i . ": " . estado . "  | C:" . Inst_Ciclos[i] . " A:" . Inst_Ataques[i] . " E:" . Inst_Errores[i]
+    texto := "#" . i . ": " . estado . "  | C:" . Inst_Ciclos[i] . " A:" . Inst_Ataques[i] . " E:" . Inst_Errores[i] . " R:" . Inst_RecuperacionTotal[i]
     GuiControl, Main:, TextoEstado%i%, %texto%
 }
 
@@ -1031,6 +1037,8 @@ ResetInstancia(i) {
     Inst_RutaPN[i] := 1
     Inst_Cooldown[i] := 0
     Inst_SkipTick[i] := 0
+    Inst_LastExito[i] := A_TickCount
+    Inst_RecuperacionTotal[i] := 0
 }
 
 ; Helper: leer expansión/batalla de los DDLs de una instancia
@@ -1210,7 +1218,29 @@ LoopPrincipal:
         if (ww = 0 || wh = 0)
             continue
 
+        ; Watchdog: si lleva demasiado tiempo sin éxito, forzar recuperación
+        tiempoSinExito := (A_TickCount - Inst_LastExito[i]) // 1000
+        if (tiempoSinExito >= WatchdogSegundos) {
+            LogI(i, "WATCHDOG: " . tiempoSinExito . "s sin éxito. Recuperación forzada desde P" . Inst_Paso[i])
+            Inst_ErrCon[i] := 0
+            Inst_P1Int[i] := 0
+            Inst_P8Int[i] := 0
+            Inst_P10Int[i] := 0
+            Inst_P11Int[i] := 0
+            Inst_ResInt[i] := 0
+            Inst_TapInt[i] := 0
+            Inst_NBInt[i] := 0
+            Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
+            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, Inst_Paso[i])
+            Inst_LastExito[i] := A_TickCount  ; Reset para no disparar cada tick
+            continue
+        }
+
+        pasoAntes := Inst_Paso[i]
         ProcesarInstancia(i)
+        ; Si el paso cambió, hubo progreso => resetear watchdog
+        if (Inst_Paso[i] != pasoAntes)
+            Inst_LastExito[i] := A_TickCount
     }
 
     ; Flush log una vez por tick
@@ -1222,6 +1252,84 @@ LoopPrincipal:
             ActualizarEstadoInst(A_Index)
     }
 return
+
+; ============================================================================
+; FUNCIÓN: Escanear popups inesperados (OK, X, TAP, NEXT, victoria, derrota)
+; Retorna: "" si no encontró nada, o el nombre del popup clickeado
+; NO modifica pasos ni estado - eso lo decide quien llama
+; ============================================================================
+ScanearPopups(hwnd, ByRef outX, ByRef outY) {
+    global IMG_OK, IMG_EQUIS, IMG_TAP, IMG_NEXT, IMG_VICTORIA, IMG_DERROTA
+
+    if (BuscarImagenEnVentana(hwnd, IMG_OK, outX, outY))
+        return "OK"
+    if (BuscarImagenEnVentana(hwnd, IMG_EQUIS, outX, outY))
+        return "X"
+    if (BuscarImagenEnVentana(hwnd, IMG_NEXT, outX, outY))
+        return "NEXT"
+    if (BuscarImagenEnVentana(hwnd, IMG_TAP, outX, outY))
+        return "TAP"
+    if (BuscarImagenEnVentana(hwnd, IMG_VICTORIA, outX, outY))
+        return "VICTORIA"
+    if (BuscarImagenEnVentana(hwnd, IMG_DERROTA, outX, outY))
+        return "DERROTA"
+    return ""
+}
+
+; ============================================================================
+; FUNCIÓN: Recuperación inteligente
+; En vez de ir ciegamente a P1, escanea qué hay en pantalla y decide el paso
+; correcto. Retorna el paso sugerido.
+; ============================================================================
+RecuperacionInteligente(i, hwnd, pasoOrigen) {
+    global
+    foundX := 0
+    foundY := 0
+
+    popup := ScanearPopups(hwnd, foundX, foundY)
+
+    if (popup = "OK") {
+        LogI(i, "RECUP[P" . pasoOrigen . "]: Popup OK detectado. Clic + ir a P8")
+        HacerClicEnVentana(hwnd, foundX, foundY)
+        Inst_SkipTick[i] := 2
+        return 8
+    }
+    if (popup = "X") {
+        LogI(i, "RECUP[P" . pasoOrigen . "]: Popup X detectado. Clic + ir a P1")
+        HacerClicEnVentana(hwnd, foundX, foundY)
+        Inst_SkipTick[i] := 2
+        return 1
+    }
+    if (popup = "NEXT") {
+        LogI(i, "RECUP[P" . pasoOrigen . "]: NEXT detectado. Clic + ir a P6")
+        HacerClicEnVentana(hwnd, foundX, foundY)
+        Inst_SkipTick[i] := 2
+        Inst_RutaPN[i] := 6
+        return 6
+    }
+    if (popup = "TAP") {
+        LogI(i, "RECUP[P" . pasoOrigen . "]: TAP detectado. Clic + ir a P5")
+        HacerClicEnVentana(hwnd, foundX, foundY)
+        Inst_SkipTick[i] := 2
+        Inst_TapInt[i] := 0
+        Inst_RutaPN[i] := 6
+        return 5
+    }
+    if (popup = "VICTORIA") {
+        LogI(i, "RECUP[P" . pasoOrigen . "]: Victoria detectada. Ir a P4")
+        Inst_ResInt[i] := 0
+        return 4
+    }
+    if (popup = "DERROTA") {
+        LogI(i, "RECUP[P" . pasoOrigen . "]: Derrota detectada. Ir a P4")
+        Inst_ResInt[i] := 0
+        return 4
+    }
+
+    ; Nada encontrado: ir a P1 como último recurso
+    LogI(i, "RECUP[P" . pasoOrigen . "]: Nada detectado. Volviendo a P1")
+    return 1
+}
 
 ; ============================================================================
 ; FUNCIÓN: Procesar un tick de una instancia (toda la lógica de 11 pasos)
@@ -1286,6 +1394,18 @@ ProcesarInstancia(i) {
             return
         }
 
+        ; Cada 10 intentos sin resultado, escanear popups inesperados
+        if (Mod(resInt, 10) = 0 && resInt < 40) {
+            popup := ScanearPopups(hwnd, foundX, foundY)
+            if (popup != "") {
+                LogI(i, "P4: Popup inesperado '" . popup . "' detectado en intento " . resInt)
+                Inst_ResInt[i] := 0
+                Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 4)
+                Inst_ErrCon[i] := 0
+                return
+            }
+        }
+
         ; Cooldown de ~3 segundos entre intentos (skip ticks)
         ticksPor3s := Ceil(3000 / IntervaloLoop)
         if (ticksPor3s < 1)
@@ -1293,11 +1413,10 @@ ProcesarInstancia(i) {
         Inst_SkipTick[i] := ticksPor3s
 
         if (resInt >= 40) {
-            LogI(i, "RECUPERACION: Sin resultado tras 40 intentos. Reiniciando P1...")
-            Inst_Paso[i] := 1
-            Inst_ErrCon[i] := 0
+            LogI(i, "RECUPERACION: Sin resultado tras 40 intentos")
             Inst_ResInt[i] := 0
-            Inst_SkipTick[i] := 0
+            Inst_ErrCon[i] := 0
+            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 4)
         }
         return
     }
@@ -1334,14 +1453,26 @@ ProcesarInstancia(i) {
             return
         }
 
+        ; Cada 8 intentos sin TAP/NEXT, escanear popups inesperados (OK, X, victoria, derrota)
+        if (Mod(tapInt, 8) = 0 && tapInt < MaxTapIntentos) {
+            popup := ScanearPopups(hwnd, foundX, foundY)
+            if (popup = "OK" || popup = "X" || popup = "VICTORIA" || popup = "DERROTA") {
+                LogI(i, "P5: Popup inesperado '" . popup . "' en intento " . tapInt)
+                Inst_TapInt[i] := 0
+                Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 5)
+                Inst_ErrCon[i] := 0
+                return
+            }
+        }
+
         if (Mod(tapInt, 10) = 0)
             LogI(i, "P5: Ni Tap ni Next (" . tapInt . " intentos)")
 
         if (tapInt >= MaxTapIntentos) {
-            LogI(i, "RECUPERACION: Sin Tap/Next tras " . MaxTapIntentos . ". Reiniciando P1...")
+            LogI(i, "RECUPERACION: Sin Tap/Next tras " . MaxTapIntentos)
             Inst_TapInt[i] := 0
             Inst_ErrCon[i] := 0
-            Inst_Paso[i] := 1
+            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 5)
         }
         return
     }
@@ -1446,10 +1577,11 @@ ProcesarInstancia(i) {
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         Inst_Errores[i] := Inst_Errores[i] + 1
         if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "RECUPERACION: Atascado P8. Reiniciando P1...")
-            Inst_Paso[i] := 1
-            Inst_ErrCon[i] := 0
+            LogI(i, "RECUPERACION: Atascado P8")
             Inst_P8Int[i] := 0
+            Inst_ErrCon[i] := 0
+            Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
+            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 8)
         }
         return
     }
@@ -1474,9 +1606,10 @@ ProcesarInstancia(i) {
         if (Mod(Inst_ErrCon[i], 10) = 0)
             LogI(i, "P9: X no encontrado (" . Inst_ErrCon[i] . " intentos)")
         if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "RECUPERACION: X no encontrado. Volviendo P1...")
-            Inst_Paso[i] := 1
+            LogI(i, "RECUPERACION: X no encontrado")
             Inst_ErrCon[i] := 0
+            Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
+            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 9)
         }
         return
     }
@@ -1510,10 +1643,11 @@ ProcesarInstancia(i) {
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         Inst_Errores[i] := Inst_Errores[i] + 1
         if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "RECUPERACION: Atascado P10. Reiniciando P1...")
-            Inst_Paso[i] := 1
-            Inst_ErrCon[i] := 0
+            LogI(i, "RECUPERACION: Atascado P10")
             Inst_P10Int[i] := 0
+            Inst_ErrCon[i] := 0
+            Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
+            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 10)
         }
         return
     }
@@ -1557,10 +1691,11 @@ ProcesarInstancia(i) {
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         Inst_Errores[i] := Inst_Errores[i] + 1
         if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "RECUPERACION: Atascado P11. Reiniciando P1...")
-            Inst_Paso[i] := 1
-            Inst_ErrCon[i] := 0
+            LogI(i, "RECUPERACION: Atascado P11")
             Inst_P11Int[i] := 0
+            Inst_ErrCon[i] := 0
+            Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
+            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 11)
         }
         return
     }
@@ -1602,10 +1737,20 @@ ProcesarInstancia(i) {
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         Inst_Errores[i] := Inst_Errores[i] + 1
         if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "RECUPERACION: Atascado P1. Reiniciando...")
-            Inst_Paso[i] := 1
-            Inst_ErrCon[i] := 0
+            LogI(i, "RECUPERACION: Atascado P1")
             Inst_P1Int[i] := 0
+            Inst_ErrCon[i] := 0
+            Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
+            ; P1 no puede recuperarse a sí mismo - escanear popups
+            nuevoPaso := RecuperacionInteligente(i, hwnd, 1)
+            if (nuevoPaso = 1) {
+                ; Si la recuperación inteligente tampoco encontró nada,
+                ; intentar scroll inverso para desatascar
+                LogI(i, "P1: Scroll inverso para desatascar...")
+                HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad)
+                Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop) + 2
+            }
+            Inst_Paso[i] := nuevoPaso
         }
         return
     }
@@ -1648,9 +1793,10 @@ ProcesarInstancia(i) {
             LogI(i, "P" . paso . ": '" . nombrePaso . "' no encontrado (" . Inst_ErrCon[i] . ")")
 
         if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "RECUPERACION: Atascado P" . paso . ". Reiniciando P1...")
-            Inst_Paso[i] := 1
+            LogI(i, "RECUPERACION: Atascado P" . paso)
             Inst_ErrCon[i] := 0
+            Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
+            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, paso)
         }
     }
 }
