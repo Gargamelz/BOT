@@ -146,11 +146,13 @@ global Inst_RutaPN := {}
 global Inst_Cooldown := {}
 global Inst_SkipTick := {}
 
-; Cache de dimensiones de imagen
+; Cache de dimensiones de imagen y existencia de archivos
 global ImgDimCache := {}
+global FileExistCache := {}
 
 ; Log buffering
 global LogBuffer := ""
+global LogCharCount := 0
 
 ; Inicializar estado de todas las instancias
 Loop, %MAX_INST% {
@@ -676,22 +678,36 @@ LogI(i, mensaje) {
 }
 
 FlushLog() {
-    global LogBuffer
+    global LogBuffer, LogCharCount
     if (LogBuffer = "")
         return
 
-    GuiControlGet, contenido, Main:, LogText
-    nuevo := contenido . LogBuffer
+    buf := LogBuffer
     LogBuffer := ""
+    LogCharCount += StrLen(buf)
 
-    if (StrLen(nuevo) > 30000) {
-        pos := InStr(nuevo, "`n",, StrLen(nuevo) // 2)
+    ; Obtener HWND del control de log
+    GuiControlGet, hLogCtrl, Main:Hwnd, LogText
+
+    ; Si el log es muy largo, truncar reseteando todo
+    if (LogCharCount > 30000) {
+        GuiControlGet, contenido, Main:, LogText
+        pos := InStr(contenido, "`n",, StrLen(contenido) // 2)
         if (pos > 0)
-            nuevo := "... (log recortado) ...`r`n" . SubStr(nuevo, pos + 1)
+            contenido := "... (log recortado) ...`r`n" . SubStr(contenido, pos + 1)
+        GuiControl, Main:, LogText, %contenido%
+        LogCharCount := StrLen(contenido)
     }
 
-    GuiControl, Main:, LogText, %nuevo%
-    GuiControlGet, hLogCtrl, Main:Hwnd, LogText
+    ; Append-only: mover cursor al final y usar EM_REPLACESEL (más rápido)
+    SendMessage, 0x000E, 0, 0,, ahk_id %hLogCtrl%  ; WM_GETTEXTLENGTH
+    len := ErrorLevel
+    SendMessage, 0x00B1, %len%, %len%,, ahk_id %hLogCtrl%  ; EM_SETSEL (end,end)
+    VarSetCapacity(bufW, StrLen(buf) * 2 + 2, 0)
+    StrPut(buf, &bufW, "UTF-16")
+    SendMessage, 0x00C2, 0, &bufW,, ahk_id %hLogCtrl%  ; EM_REPLACESEL
+
+    ; Auto-scroll al final
     SendMessage, 0x0115, 7, 0,, ahk_id %hLogCtrl%
 }
 
@@ -742,10 +758,19 @@ ObtenerDimensionesImagenCached(ruta, ByRef w, ByRef h) {
 ; ============================================================================
 ; FUNCIÓN: Buscar imagen en ventana por HWND
 ; ============================================================================
+ArchivoExiste(ruta) {
+    global FileExistCache
+    if (FileExistCache.HasKey(ruta))
+        return FileExistCache[ruta]
+    existe := FileExist(ruta) ? true : false
+    FileExistCache[ruta] := existe
+    return existe
+}
+
 BuscarImagenEnVentana(hwnd, ByRef rutaImagen, ByRef foundX, ByRef foundY) {
     global Variacion
 
-    if !FileExist(rutaImagen)
+    if !ArchivoExiste(rutaImagen)
         return false
 
     WinGetPos, wx, wy, ww, wh, ahk_id %hwnd%
@@ -869,7 +894,6 @@ return
 ; LABELS: Control GLOBAL (Iniciar/Pausar/Detener TODOS)
 ; ============================================================================
 IniciarTodos:
-    ; Leer config compartida de la GUI
     LeerConfigGUI()
 
     algunoIniciado := false
@@ -879,56 +903,12 @@ IniciarTodos:
             continue
 
         if (!Inst_Activo[i]) {
-            ; Leer expansión y batalla de los DDLs de esta instancia
-            GuiControlGet, tmpExp, Main:, DDLExp%i%
-            expNum := 1
-            Loop, %TotalExpansiones% {
-                if InStr(tmpExp, A_Index . ":") {
-                    expNum := A_Index
-                    break
-                }
-            }
-            Inst_Exp[i] := expNum
-
-            GuiControlGet, tmpBat, Main:, DDLBat%i%
-            batNum := RegExReplace(tmpBat, "[^0-9]", "") + 0
-            maxBat := BatCnt[expNum]
-            if (batNum < 1 || batNum > maxBat)
-                batNum := 1
-            Inst_Bat[i] := batNum
-
-            ; Auto-ajustar ventana si está habilitado
-            if (AutoAjustar && VentanaAncho >= 100 && VentanaAlto >= 100) {
-                hwnd := Inst_Hwnd[i]
-                WinGetPos, wx, wy, wwA, whA, ahk_id %hwnd%
-                if (wwA != VentanaAncho || whA != VentanaAlto) {
-                    LogI(i, "Auto-ajustando ventana de " . wwA . "x" . whA . " a " . VentanaAncho . "x" . VentanaAlto)
-                    WinMove, ahk_id %hwnd%,, wx, wy, %VentanaAncho%, %VentanaAlto%
-                }
-            }
-
-            ; Iniciar instancia
-            Inst_Activo[i] := true
-            Inst_Pausado[i] := false
-            Inst_Paso[i] := 1
-            Inst_Ciclos[i] := 0
-            Inst_Ataques[i] := 0
-            Inst_Errores[i] := 0
-            Inst_ErrCon[i] := 0
-            Inst_P1Int[i] := 0
-            Inst_P8Int[i] := 0
-            Inst_P10Int[i] := 0
-            Inst_P11Int[i] := 0
-            Inst_ResInt[i] := 0
-            Inst_TapInt[i] := 0
-            Inst_NBInt[i] := 0
-            Inst_RutaPN[i] := 1
-            Inst_Cooldown[i] := 0
-            Inst_SkipTick[i] := 0
+            LeerDDLsInstancia(i)
+            AutoAjustarVentana(i)
+            ResetInstancia(i)
             LogI(i, "=== INICIADO === Exp:" . Inst_Exp[i] . " Bat:" . Inst_Bat[i] . " (" . BatNom[Inst_Exp[i], Inst_Bat[i]] . ")")
             algunoIniciado := true
         } else if (Inst_Pausado[i]) {
-            ; Reanudar si estaba pausado
             Inst_Pausado[i] := false
             LogI(i, "=== REANUDADO ===")
             algunoIniciado := true
@@ -1030,6 +1010,73 @@ return
 ; ============================================================================
 ; FUNCIONES: Control per-instancia
 ; ============================================================================
+
+; Helper: resetear todos los contadores de una instancia
+ResetInstancia(i) {
+    global
+    Inst_Activo[i] := true
+    Inst_Pausado[i] := false
+    Inst_Paso[i] := 1
+    Inst_Ciclos[i] := 0
+    Inst_Ataques[i] := 0
+    Inst_Errores[i] := 0
+    Inst_ErrCon[i] := 0
+    Inst_P1Int[i] := 0
+    Inst_P8Int[i] := 0
+    Inst_P10Int[i] := 0
+    Inst_P11Int[i] := 0
+    Inst_ResInt[i] := 0
+    Inst_TapInt[i] := 0
+    Inst_NBInt[i] := 0
+    Inst_RutaPN[i] := 1
+    Inst_Cooldown[i] := 0
+    Inst_SkipTick[i] := 0
+}
+
+; Helper: leer expansión/batalla de los DDLs de una instancia
+LeerDDLsInstancia(i) {
+    global
+    GuiControlGet, tmpExp, Main:, DDLExp%i%
+    expNum := 1
+    Loop, %TotalExpansiones% {
+        if InStr(tmpExp, A_Index . ":") {
+            expNum := A_Index
+            break
+        }
+    }
+    Inst_Exp[i] := expNum
+
+    GuiControlGet, tmpBat, Main:, DDLBat%i%
+    batNum := RegExReplace(tmpBat, "[^0-9]", "") + 0
+    maxBat := BatCnt[expNum]
+    if (batNum < 1 || batNum > maxBat)
+        batNum := 1
+    Inst_Bat[i] := batNum
+}
+
+; Helper: auto-ajustar ventana si está habilitado
+AutoAjustarVentana(i) {
+    global
+    if (AutoAjustar && VentanaAncho >= 100 && VentanaAlto >= 100) {
+        hwnd := Inst_Hwnd[i]
+        WinGetPos, wx, wy, wwA, whA, ahk_id %hwnd%
+        if (wwA != VentanaAncho || whA != VentanaAlto) {
+            LogI(i, "Auto-ajustando ventana de " . wwA . "x" . whA . " a " . VentanaAncho . "x" . VentanaAlto)
+            WinMove, ahk_id %hwnd%,, wx, wy, %VentanaAncho%, %VentanaAlto%
+        }
+    }
+}
+
+; Helper: verificar si hay al menos una instancia activa
+HayInstanciaActiva() {
+    global
+    Loop, %MAX_INST% {
+        if (Inst_Activo[A_Index])
+            return true
+    }
+    return false
+}
+
 IniciarInstancia(i) {
     global
     LeerConfigGUI()
@@ -1052,62 +1099,13 @@ IniciarInstancia(i) {
     if (Inst_Activo[i])
         return
 
-    ; Leer DDLs
-    GuiControlGet, tmpExp, Main:, DDLExp%i%
-    expNum := 1
-    Loop, %TotalExpansiones% {
-        if InStr(tmpExp, A_Index . ":") {
-            expNum := A_Index
-            break
-        }
-    }
-    Inst_Exp[i] := expNum
-
-    GuiControlGet, tmpBat, Main:, DDLBat%i%
-    batNum := RegExReplace(tmpBat, "[^0-9]", "") + 0
-    maxBat := BatCnt[expNum]
-    if (batNum < 1 || batNum > maxBat)
-        batNum := 1
-    Inst_Bat[i] := batNum
-
-    ; Auto-ajustar
-    if (AutoAjustar && VentanaAncho >= 100 && VentanaAlto >= 100) {
-        WinGetPos, wx, wy, wwA, whA, ahk_id %hwnd%
-        if (wwA != VentanaAncho || whA != VentanaAlto) {
-            LogI(i, "Auto-ajustando ventana")
-            WinMove, ahk_id %hwnd%,, wx, wy, %VentanaAncho%, %VentanaAlto%
-        }
-    }
-
-    Inst_Activo[i] := true
-    Inst_Pausado[i] := false
-    Inst_Paso[i] := 1
-    Inst_Ciclos[i] := 0
-    Inst_Ataques[i] := 0
-    Inst_Errores[i] := 0
-    Inst_ErrCon[i] := 0
-    Inst_P1Int[i] := 0
-    Inst_P8Int[i] := 0
-    Inst_P10Int[i] := 0
-    Inst_P11Int[i] := 0
-    Inst_ResInt[i] := 0
-    Inst_TapInt[i] := 0
-    Inst_NBInt[i] := 0
-    Inst_RutaPN[i] := 1
-    Inst_Cooldown[i] := 0
-    Inst_SkipTick[i] := 0
+    LeerDDLsInstancia(i)
+    AutoAjustarVentana(i)
+    ResetInstancia(i)
     LogI(i, "=== INICIADO === Exp:" . Inst_Exp[i] . " Bat:" . Inst_Bat[i])
     ActualizarEstadoInst(i)
 
-    ; Asegurar timer activo
-    hayActivo := false
-    Loop, %MAX_INST% {
-        if (Inst_Activo[A_Index]) {
-            hayActivo := true
-            break
-        }
-    }
-    if (hayActivo)
+    if (HayInstanciaActiva())
         SetTimer, LoopPrincipal, %IntervaloLoop%
     FlushLog()
 }
@@ -1135,15 +1133,7 @@ DetenerInstancia(i) {
     LogI(i, "=== DETENIDO ===")
     ActualizarEstadoInst(i)
 
-    ; Si no queda ninguno activo, detener timer
-    hayActivo := false
-    Loop, %MAX_INST% {
-        if (Inst_Activo[A_Index]) {
-            hayActivo := true
-            break
-        }
-    }
-    if (!hayActivo)
+    if (!HayInstanciaActiva())
         SetTimer, LoopPrincipal, Off
     FlushLog()
 }
@@ -1428,7 +1418,7 @@ ProcesarInstancia(i) {
         imgBat := BatImg[exp, bat]
         nomBat := BatNom[exp, bat]
 
-        if (imgBat = "" || !FileExist(imgBat)) {
+        if (imgBat = "" || !ArchivoExiste(imgBat)) {
             LogI(i, "ERROR: Falta imagen para batalla " . bat . " (" . nomBat . ")")
             Inst_Errores[i] := Inst_Errores[i] + 1
             return
@@ -1448,7 +1438,8 @@ ProcesarInstancia(i) {
             return
         }
 
-        LogI(i, "P8: '" . nomBat . "' no encontrado. Scroll... (" . Inst_P8Int[i] . ")")
+        if (Mod(Inst_P8Int[i], 5) = 0)
+            LogI(i, "P8: '" . nomBat . "' no encontrado. Scroll... (" . Inst_P8Int[i] . ")")
         HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
         Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
 
@@ -1511,7 +1502,8 @@ ProcesarInstancia(i) {
             return
         }
 
-        LogI(i, "P10: 'Expansiones' no encontrado. Scroll... (" . Inst_P10Int[i] . ")")
+        if (Mod(Inst_P10Int[i], 5) = 0)
+            LogI(i, "P10: 'Expansiones' no encontrado. Scroll... (" . Inst_P10Int[i] . ")")
         HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
         Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
 
@@ -1535,7 +1527,7 @@ ProcesarInstancia(i) {
         nombreExp := ExpansionNombres[exp]
         imgExp := ExpansionImagenes[exp]
 
-        if (imgExp = "" || !FileExist(imgExp)) {
+        if (imgExp = "" || !ArchivoExiste(imgExp)) {
             LogI(i, "ERROR: Falta imagen expansión " . exp)
             Inst_P11Int[i] := 0
             Inst_Paso[i] := 1
@@ -1557,7 +1549,8 @@ ProcesarInstancia(i) {
             return
         }
 
-        LogI(i, "P11: '" . nombreExp . "' no encontrado. Scroll... (" . Inst_P11Int[i] . ")")
+        if (Mod(Inst_P11Int[i], 5) = 0)
+            LogI(i, "P11: '" . nombreExp . "' no encontrado. Scroll... (" . Inst_P11Int[i] . ")")
         HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
         Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
 
@@ -1581,7 +1574,7 @@ ProcesarInstancia(i) {
         imgBat1 := BatImg[exp, bat]
         nomBat1 := BatNom[exp, bat]
 
-        if (imgBat1 = "" || !FileExist(imgBat1)) {
+        if (imgBat1 = "" || !ArchivoExiste(imgBat1)) {
             LogI(i, "ERROR: Falta imagen batalla " . bat . " (" . nomBat1 . ")")
             Inst_Errores[i] := Inst_Errores[i] + 1
             return
@@ -1601,7 +1594,8 @@ ProcesarInstancia(i) {
             return
         }
 
-        LogI(i, "P1: '" . nomBat1 . "' no encontrado. Scroll... (" . Inst_P1Int[i] . ")")
+        if (Mod(Inst_P1Int[i], 5) = 0)
+            LogI(i, "P1: '" . nomBat1 . "' no encontrado. Scroll... (" . Inst_P1Int[i] . ")")
         HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
         Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
 
@@ -1621,30 +1615,21 @@ ProcesarInstancia(i) {
     ; ================================================================
     imgActual := PasoImagenes[paso]
 
-    if (imgActual = "" || !FileExist(imgActual)) {
+    if (imgActual = "" || !ArchivoExiste(imgActual)) {
         LogI(i, "ERROR: Falta imagen P" . paso . " (" . nombrePaso . ")")
         Inst_Errores[i] := Inst_Errores[i] + 1
         return
     }
 
-    ; Scroll inteligente para pasos normales
+    ; Buscar imagen (sin scroll bloqueante - si no la encuentra, hace un scroll
+    ; y vuelve en el siguiente tick gracias al SkipTick de cooldown)
     imagenEncontrada := false
-    if (ScrollActivo && (ScrollEnPaso = 0 || ScrollEnPaso = paso)) {
-        if (BuscarImagenEnVentana(hwnd, imgActual, foundX, foundY)) {
-            imagenEncontrada := true
-        } else {
-            Loop, %ScrollCantidad% {
-                HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, 1)
-                Sleep, %ScrollDelay%
-                if (BuscarImagenEnVentana(hwnd, imgActual, foundX, foundY)) {
-                    imagenEncontrada := true
-                    break
-                }
-            }
-        }
-    } else {
-        if (BuscarImagenEnVentana(hwnd, imgActual, foundX, foundY))
-            imagenEncontrada := true
+    if (BuscarImagenEnVentana(hwnd, imgActual, foundX, foundY)) {
+        imagenEncontrada := true
+    } else if (ScrollActivo && (ScrollEnPaso = 0 || ScrollEnPaso = paso)) {
+        ; No encontrada: hacer un scroll y reintentar en el siguiente tick
+        HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
+        Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
     }
 
     if (imagenEncontrada) {
@@ -1841,40 +1826,38 @@ AutoDetectar:
 return
 
 ; ============================================================================
-; LABEL: Auto-acomodar ventanas (organizar en grilla)
+; LABEL: Auto-acomodar ventanas (misma resolución que #1, lado a lado)
+; Usa la resolución de la primera ventana asignada como referencia.
+; Las coloca una al lado de la otra horizontalmente; si no caben en la
+; pantalla, pasa a la siguiente fila.
 ; ============================================================================
 AutoAcomodar:
-    Log("Acomodando ventanas...")
-    ; Obtener resolución de pantalla
-    SysGet, monW, 78  ; SM_CXSCREEN
-    SysGet, monH, 79  ; SM_CYSCREEN
-
-    ventActivas := 0
+    ; Encontrar la primera ventana asignada para usar su tamaño de referencia
+    refHwnd := 0
     Loop, %MAX_INST% {
-        if (Inst_Hwnd[A_Index] != 0 && WinExist("ahk_id " . Inst_Hwnd[A_Index]))
-            ventActivas++
+        h := Inst_Hwnd[A_Index]
+        if (h != 0 && WinExist("ahk_id " . h)) {
+            refHwnd := h
+            break
+        }
     }
-
-    if (ventActivas = 0) {
+    if (refHwnd = 0) {
         Log("No hay ventanas para acomodar")
         FlushLog()
         return
     }
 
-    ; Calcular grilla
-    if (ventActivas <= 2) {
-        cols := ventActivas
-        rows := 1
-    } else if (ventActivas <= 4) {
-        cols := 2
-        rows := 2
-    } else {
-        cols := 3
-        rows := 2
+    WinGetPos,,, refW, refH, ahk_id %refHwnd%
+    if (refW < 50 || refH < 50) {
+        refW := VentanaAncho
+        refH := VentanaAlto
     }
+    Log("Acomodando ventanas con resolución de referencia: " . refW . "x" . refH)
 
-    cellW := monW // cols
-    cellH := monH // rows
+    SysGet, monW, 78
+    maxCols := monW // refW
+    if (maxCols < 1)
+        maxCols := 1
 
     idx := 0
     Loop, %MAX_INST% {
@@ -1883,15 +1866,15 @@ AutoAcomodar:
         if (hwnd = 0 || !WinExist("ahk_id " . hwnd))
             continue
 
-        col := Mod(idx, cols)
-        row := idx // cols
-        posX := col * cellW
-        posY := row * cellH
-        WinMove, ahk_id %hwnd%,, %posX%, %posY%, %cellW%, %cellH%
-        Log("Ventana #" . i . " -> (" . posX . "," . posY . ") " . cellW . "x" . cellH)
+        col := Mod(idx, maxCols)
+        row := idx // maxCols
+        posX := col * refW
+        posY := row * refH
+        WinMove, ahk_id %hwnd%,, %posX%, %posY%, %refW%, %refH%
+        Log("Ventana #" . i . " -> (" . posX . "," . posY . ") " . refW . "x" . refH)
         idx++
     }
-    Log("Ventanas acomodadas en grilla " . cols . "x" . rows)
+    Log(idx . " ventana(s) acomodadas lado a lado (" . refW . "x" . refH . ")")
     FlushLog()
 return
 
