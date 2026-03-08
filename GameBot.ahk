@@ -152,6 +152,8 @@ global Inst_RutaPN := {}
 global Inst_Cooldown := {}
 global Inst_SkipTick := {}
 global Inst_LastExito := {}
+global RR_Inst := 0  ; Round-robin: última instancia procesada
+global RR_Intervalo := 0  ; Intervalo real del timer (ms)
 global Inst_RecuperacionTotal := {}
 
 ; ADB por instancia
@@ -1430,8 +1432,20 @@ IniciarTodos:
     }
 
     if (algunoIniciado) {
-        SetTimer, LoopPrincipal, %IntervaloLoop%
-        Log(">>> Timer principal activo cada " . IntervaloLoop . "ms")
+        ; Round-robin: timer más rápido para que cada instancia sea atendida frecuentemente
+        activos := 0
+        Loop, %MAX_INST% {
+            if (Inst_Activo[A_Index] && !Inst_Pausado[A_Index])
+                activos := activos + 1
+        }
+        if (activos < 1)
+            activos := 1
+        rrIntervalo := IntervaloLoop // activos
+        if (rrIntervalo < 50)
+            rrIntervalo := 50
+        RR_Intervalo := rrIntervalo
+        SetTimer, LoopPrincipal, %rrIntervalo%
+        Log(">>> Timer round-robin activo cada " . rrIntervalo . "ms (" . activos . " instancias, base " . IntervaloLoop . "ms)")
     } else {
         Log("AVISO: No hay instancias con ventana asignada para iniciar")
     }
@@ -1628,8 +1642,20 @@ IniciarInstancia(i) {
     LogI(i, "=== INICIADO === Exp:" . Inst_Exp[i] . " Bat:" . Inst_Bat[i])
     ActualizarEstadoInst(i)
 
-    if (HayInstanciaActiva())
-        SetTimer, LoopPrincipal, %IntervaloLoop%
+    if (HayInstanciaActiva()) {
+        activos := 0
+        Loop, %MAX_INST% {
+            if (Inst_Activo[A_Index] && !Inst_Pausado[A_Index])
+                activos := activos + 1
+        }
+        if (activos < 1)
+            activos := 1
+        rrIntervalo := IntervaloLoop // activos
+        if (rrIntervalo < 50)
+            rrIntervalo := 50
+        RR_Intervalo := rrIntervalo
+        SetTimer, LoopPrincipal, %rrIntervalo%
+    }
     FlushLog()
 }
 
@@ -1708,113 +1734,144 @@ LeerConfigGUI() {
 }
 
 ; ============================================================================
-; LOOP PRINCIPAL: Un solo timer que itera sobre todas las instancias
+; LOOP PRINCIPAL: Round-robin — procesa 1 instancia por tick para paralelismo
 ; ============================================================================
 LoopPrincipal:
     Critical
 
+    ; Decrementar cooldowns de TODAS las instancias cada tick
     Loop, %MAX_INST% {
-        i := A_Index
-        if (!Inst_Activo[i] || Inst_Pausado[i])
+        idx := A_Index
+        if (Inst_Activo[idx] && Inst_SkipTick[idx] > 0)
+            Inst_SkipTick[idx] := Inst_SkipTick[idx] - 1
+    }
+
+    ; Round-robin: buscar la siguiente instancia activa para procesar
+    intentosRR := 0
+    i := 0
+    Loop, %MAX_INST% {
+        RR_Inst := RR_Inst + 1
+        if (RR_Inst > MAX_INST)
+            RR_Inst := 1
+        intentosRR := intentosRR + 1
+
+        if (!Inst_Activo[RR_Inst] || Inst_Pausado[RR_Inst])
+            continue
+        if (Inst_SkipTick[RR_Inst] > 0)
             continue
 
-        ; Cooldown: saltar ticks si la instancia necesita esperar
-        if (Inst_SkipTick[i] > 0) {
-            Inst_SkipTick[i] := Inst_SkipTick[i] - 1
-            continue
+        i := RR_Inst
+        break
+    }
+
+    ; Si no hay instancia para procesar, solo flush y actualizar
+    if (i = 0) {
+        FlushLog()
+        Loop, %MAX_INST% {
+            if (Inst_Activo[A_Index])
+                ActualizarEstadoInst(A_Index)
         }
+        return
+    }
 
-        ; Verificar que la ventana sigue existiendo
-        hwnd := Inst_Hwnd[i]
-        if (!WinExist("ahk_id " . hwnd)) {
-            LogI(i, "ERROR: Ventana cerrada. Deteniendo instancia.")
-            DetenerInstancia(i)
-            continue
+    ; Verificar que la ventana sigue existiendo
+    hwnd := Inst_Hwnd[i]
+    if (!WinExist("ahk_id " . hwnd)) {
+        LogI(i, "ERROR: Ventana cerrada. Deteniendo instancia.")
+        DetenerInstancia(i)
+        FlushLog()
+        return
+    }
+
+    WinGetPos,,, ww, wh, ahk_id %hwnd%
+    if (ww = 0 || wh = 0) {
+        FlushLog()
+        return
+    }
+
+    ; Watchdog: si lleva demasiado tiempo sin éxito, forzar recuperación
+    tiempoSinExito := (A_TickCount - Inst_LastExito[i]) // 1000
+    if (tiempoSinExito >= WatchdogSegundos) {
+        LogI(i, "WATCHDOG: " . tiempoSinExito . "s sin éxito. Recuperación forzada desde P" . Inst_Paso[i])
+        Inst_ErrCon[i] := 0
+        Inst_P1Int[i] := 0
+        Inst_P8Int[i] := 0
+        Inst_P10Int[i] := 0
+        Inst_P11Int[i] := 0
+        Inst_ResInt[i] := 0
+        Inst_TapInt[i] := 0
+        Inst_NBInt[i] := 0
+        Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
+        Inst_ScrollActivo[i] := false
+        Inst_ScrollFase[i] := 0
+        Inst_Paso[i] := RecuperacionInteligente(i, hwnd, Inst_Paso[i])
+        Inst_LastExito[i] := A_TickCount
+        FlushLog()
+        ActualizarEstadoInst(i)
+        return
+    }
+
+    ; Si hay una recuperación en curso, procesarla (1 popup por tick)
+    if (Inst_RecupFase[i] > 0) {
+        ProcesarRecuperacion(i)
+        FlushLog()
+        ActualizarEstadoInst(i)
+        return
+    }
+
+    ; Si hay un scroll en curso, procesarlo en vez de la lógica normal
+    if (Inst_ScrollActivo[i]) {
+        resultado := ProcesarScroll(i)
+        if (resultado = 0) {
+            FlushLog()
+            ActualizarEstadoInst(i)
+            return
         }
-
-        WinGetPos,,, ww, wh, ahk_id %hwnd%
-        if (ww = 0 || wh = 0)
-            continue
-
-        ; Watchdog: si lleva demasiado tiempo sin éxito, forzar recuperación
-        tiempoSinExito := (A_TickCount - Inst_LastExito[i]) // 1000
-        if (tiempoSinExito >= WatchdogSegundos) {
-            LogI(i, "WATCHDOG: " . tiempoSinExito . "s sin éxito. Recuperación forzada desde P" . Inst_Paso[i])
-            Inst_ErrCon[i] := 0
-            Inst_P1Int[i] := 0
-            Inst_P8Int[i] := 0
-            Inst_P10Int[i] := 0
-            Inst_P11Int[i] := 0
-            Inst_ResInt[i] := 0
-            Inst_TapInt[i] := 0
-            Inst_NBInt[i] := 0
-            Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
-            Inst_ScrollActivo[i] := false
-            Inst_ScrollFase[i] := 0
-            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, Inst_Paso[i])
-            Inst_LastExito[i] := A_TickCount  ; Reset para no disparar cada tick
-            continue
-        }
-
-        ; Si hay una recuperación en curso, procesarla (1 popup por tick)
-        if (Inst_RecupFase[i] > 0) {
-            ProcesarRecuperacion(i)
-            continue
-        }
-
-        ; Si hay un scroll en curso, procesarlo en vez de la lógica normal
-        if (Inst_ScrollActivo[i]) {
-            resultado := ProcesarScroll(i)
-            if (resultado = 0)
-                continue  ; scroll aún en curso
-            ; Scroll terminado: si encontró imagen post-scroll, actuar
-            if (resultado = 2) {
-                ; Re-buscar para obtener las coordenadas (ProcesarScroll ya confirmó)
-                hwndS := Inst_Hwnd[i]
-                imgS := Inst_ScrollPostImg[i] ? Inst_ScrollPostImg[i] : ""
-                paso := Inst_Paso[i]
-                if (paso = 1 || paso = 8) {
-                    exp := Inst_Exp[i]
-                    bat := Inst_Bat[i]
-                    imgBuscar := BatImg[exp, bat]
-                    foundX := 0
-                    foundY := 0
-                    if (BuscarImagenEnVentana(hwndS, imgBuscar, foundX, foundY)) {
-                        nomBat := BatNom[exp, bat]
-                        LogI(i, "P" . paso . ": '" . nomBat . "' encontrado (post-scroll)")
-                        HacerClicEnVentana(hwndS, foundX, foundY, i)
-                        Inst_Ataques[i] := Inst_Ataques[i] + 1
-                        Inst_ErrCon[i] := 0
-                        if (paso = 1)
-                            Inst_P1Int[i] := 0
-                        else
-                            Inst_P8Int[i] := 0
-                        Inst_Paso[i] := 2
-                        Inst_SkipTick[i] := 2
-                        Inst_LastExito[i] := A_TickCount
-                    }
+        ; Scroll terminado: si encontró imagen post-scroll, actuar
+        if (resultado = 2) {
+            hwndS := Inst_Hwnd[i]
+            imgS := Inst_ScrollPostImg[i] ? Inst_ScrollPostImg[i] : ""
+            paso := Inst_Paso[i]
+            if (paso = 1 || paso = 8) {
+                exp := Inst_Exp[i]
+                bat := Inst_Bat[i]
+                imgBuscar := BatImg[exp, bat]
+                foundX := 0
+                foundY := 0
+                if (BuscarImagenEnVentana(hwndS, imgBuscar, foundX, foundY)) {
+                    nomBat := BatNom[exp, bat]
+                    LogI(i, "P" . paso . ": '" . nomBat . "' encontrado (post-scroll)")
+                    HacerClicEnVentana(hwndS, foundX, foundY, i)
+                    Inst_Ataques[i] := Inst_Ataques[i] + 1
+                    Inst_ErrCon[i] := 0
+                    if (paso = 1)
+                        Inst_P1Int[i] := 0
+                    else
+                        Inst_P8Int[i] := 0
+                    Inst_Paso[i] := 2
+                    Inst_SkipTick[i] := 2
+                    Inst_LastExito[i] := A_TickCount
                 }
-                continue
             }
-            ; resultado = 1 o -1: scroll terminado, continuar lógica normal en siguiente tick
-            continue
+            FlushLog()
+            ActualizarEstadoInst(i)
+            return
         }
-
-        pasoAntes := Inst_Paso[i]
-        ProcesarInstancia(i)
-        ; Si el paso cambió, hubo progreso => resetear watchdog
-        if (Inst_Paso[i] != pasoAntes)
-            Inst_LastExito[i] := A_TickCount
+        ; resultado = 1 o -1: scroll terminado, continuar lógica normal en siguiente tick
+        FlushLog()
+        ActualizarEstadoInst(i)
+        return
     }
 
-    ; Flush log una vez por tick
+    pasoAntes := Inst_Paso[i]
+    ProcesarInstancia(i)
+    ; Si el paso cambió, hubo progreso => resetear watchdog
+    if (Inst_Paso[i] != pasoAntes)
+        Inst_LastExito[i] := A_TickCount
+
+    ; Flush log y actualizar estado de esta instancia
     FlushLog()
-
-    ; Actualizar estados
-    Loop, %MAX_INST% {
-        if (Inst_Activo[A_Index])
-            ActualizarEstadoInst(A_Index)
-    }
+    ActualizarEstadoInst(i)
 return
 
 ; ============================================================================
@@ -2021,7 +2078,8 @@ ProcesarInstancia(i) {
         }
 
         ; Cooldown de ~3 segundos entre intentos (skip ticks)
-        ticksPor3s := Ceil(3000 / IntervaloLoop)
+        intervaloActual := RR_Intervalo > 0 ? RR_Intervalo : IntervaloLoop
+        ticksPor3s := Ceil(3000 / intervaloActual)
         if (ticksPor3s < 1)
             ticksPor3s := 1
         Inst_SkipTick[i] := ticksPor3s
