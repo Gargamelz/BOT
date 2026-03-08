@@ -1562,10 +1562,18 @@ ProcesarInstancia(i) {
             return
         }
 
-        if (Mod(Inst_P8Int[i], 5) = 0)
-            LogI(i, "P8: '" . nomBat . "' no encontrado. Scroll... (" . Inst_P8Int[i] . ")")
-        HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
-        Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
+        ; Cada 10 intentos, volver arriba con scroll inverso grande
+        if (Mod(Inst_P8Int[i], 10) = 0) {
+            LogI(i, "P8: Scroll inverso para volver arriba (" . Inst_P8Int[i] . ")")
+            Loop, 5
+                HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2)
+            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop) + 3
+        } else {
+            if (Mod(Inst_P8Int[i], 5) = 0)
+                LogI(i, "P8: '" . nomBat . "' no encontrado. Scroll... (" . Inst_P8Int[i] . ")")
+            HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
+            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
+        }
 
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         Inst_Errores[i] := Inst_Errores[i] + 1
@@ -1628,10 +1636,18 @@ ProcesarInstancia(i) {
             return
         }
 
-        if (Mod(Inst_P10Int[i], 5) = 0)
-            LogI(i, "P10: 'Expansiones' no encontrado. Scroll... (" . Inst_P10Int[i] . ")")
-        HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
-        Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
+        ; Cada 10 intentos, volver arriba con scroll inverso grande
+        if (Mod(Inst_P10Int[i], 10) = 0) {
+            LogI(i, "P10: Scroll inverso para volver arriba (" . Inst_P10Int[i] . ")")
+            Loop, 5
+                HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2)
+            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop) + 3
+        } else {
+            if (Mod(Inst_P10Int[i], 5) = 0)
+                LogI(i, "P10: 'Expansiones' no encontrado. Scroll... (" . Inst_P10Int[i] . ")")
+            HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
+            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
+        }
 
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         Inst_Errores[i] := Inst_Errores[i] + 1
@@ -1676,10 +1692,18 @@ ProcesarInstancia(i) {
             return
         }
 
-        if (Mod(Inst_P11Int[i], 5) = 0)
-            LogI(i, "P11: '" . nombreExp . "' no encontrado. Scroll... (" . Inst_P11Int[i] . ")")
-        HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
-        Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
+        ; Cada 10 intentos, volver arriba con scroll inverso grande
+        if (Mod(Inst_P11Int[i], 10) = 0) {
+            LogI(i, "P11: Scroll inverso para volver arriba (" . Inst_P11Int[i] . ")")
+            Loop, 5
+                HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2)
+            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop) + 3
+        } else {
+            if (Mod(Inst_P11Int[i], 5) = 0)
+                LogI(i, "P11: '" . nombreExp . "' no encontrado. Scroll... (" . Inst_P11Int[i] . ")")
+            HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
+            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
+        }
 
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         Inst_Errores[i] := Inst_Errores[i] + 1
@@ -1722,10 +1746,18 @@ ProcesarInstancia(i) {
             return
         }
 
-        if (Mod(Inst_P1Int[i], 5) = 0)
-            LogI(i, "P1: '" . nomBat1 . "' no encontrado. Scroll... (" . Inst_P1Int[i] . ")")
-        HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
-        Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
+        ; Cada 10 intentos, volver arriba con scroll inverso grande
+        if (Mod(Inst_P1Int[i], 10) = 0) {
+            LogI(i, "P1: Scroll inverso para volver arriba (" . Inst_P1Int[i] . ")")
+            Loop, 5
+                HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2)
+            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop) + 3
+        } else {
+            if (Mod(Inst_P1Int[i], 5) = 0)
+                LogI(i, "P1: '" . nomBat1 . "' no encontrado. Scroll... (" . Inst_P1Int[i] . ")")
+            HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
+            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
+        }
 
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         Inst_Errores[i] := Inst_Errores[i] + 1
@@ -1734,15 +1766,7 @@ ProcesarInstancia(i) {
             Inst_P1Int[i] := 0
             Inst_ErrCon[i] := 0
             Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
-            ; P1 no puede recuperarse a sí mismo - escanear popups
             nuevoPaso := RecuperacionInteligente(i, hwnd, 1)
-            if (nuevoPaso = 1) {
-                ; Si la recuperación inteligente tampoco encontró nada,
-                ; intentar scroll inverso para desatascar
-                LogI(i, "P1: Scroll inverso para desatascar...")
-                HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad)
-                Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop) + 2
-            }
             Inst_Paso[i] := nuevoPaso
         }
         return
