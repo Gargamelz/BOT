@@ -1095,8 +1095,19 @@ IniciarScroll(i, hwnd, relX, relY, cantidad, repeticiones := 1, imgPostScroll :=
         if (yFin < 10)
             yFin := 10
 
+        ; Duración proporcional a la distancia para un swipe suave
+        duracion := Abs(distancia) * 8
+        if (duracion < 300)
+            duracion := 300
+        if (duracion > 1500)
+            duracion := 1500
+
         ; Ejecutar 1 solo swipe ahora
-        ADB_Swipe(i, relX, yInicio, yFin, 400)
+        ADB_Swipe(i, relX, yInicio, yFin, duracion)
+
+        ; Calcular ticks de espera proporcionales a la duración del swipe
+        intervaloActual := RR_Intervalo > 0 ? RR_Intervalo : IntervaloLoop
+        ticksEspera := Ceil(duracion / intervaloActual) + 1
 
         ; Si hay repeticiones, usar la máquina de estados para las restantes
         if (repeticiones > 1) {
@@ -1104,13 +1115,16 @@ IniciarScroll(i, hwnd, relX, relY, cantidad, repeticiones := 1, imgPostScroll :=
             Inst_ScrollFase[i] := 4  ; fase especial: ADB multi-swipe
             Inst_ScrollHwndTarget[i] := hwnd
             Inst_ScrollRepetir[i] := repeticiones - 1  ; ya hicimos 1
-            Inst_SkipTick[i] := 1  ; esperar 1 tick entre swipes
+            Inst_SkipTick[i] := ticksEspera
         } else if (imgPostScroll != "") {
             ; Solo 1 swipe + búsqueda post-scroll
             Inst_ScrollActivo[i] := true
             Inst_ScrollFase[i] := 3  ; ir a fase búsqueda
             Inst_ScrollHwndTarget[i] := hwnd
-            Inst_SkipTick[i] := 1  ; esperar que el swipe termine
+            Inst_SkipTick[i] := ticksEspera
+        } else {
+            ; Solo 1 swipe sin búsqueda: esperar a que termine
+            Inst_SkipTick[i] := ticksEspera
         }
         return
     }
@@ -1286,7 +1300,19 @@ ProcesarScroll(i) {
             yInicio := 10
         if (yFin < 10)
             yFin := 10
-        ADB_Swipe(i, relX, yInicio, yFin, 400)
+
+        ; Duración proporcional a la distancia
+        duracion := Abs(distancia) * 8
+        if (duracion < 300)
+            duracion := 300
+        if (duracion > 1500)
+            duracion := 1500
+
+        ADB_Swipe(i, relX, yInicio, yFin, duracion)
+
+        ; Esperar proporcionalmente a la duración del swipe
+        intervaloActual := RR_Intervalo > 0 ? RR_Intervalo : IntervaloLoop
+        ticksEspera := Ceil(duracion / intervaloActual) + 1
 
         Inst_ScrollRepetir[i] := Inst_ScrollRepetir[i] - 1
         if (Inst_ScrollRepetir[i] <= 0) {
@@ -1294,14 +1320,14 @@ ProcesarScroll(i) {
             imgPostScroll := Inst_ScrollPostImg[i]
             if (imgPostScroll != "") {
                 Inst_ScrollFase[i] := 3  ; buscar imagen
-                Inst_SkipTick[i] := 1
+                Inst_SkipTick[i] := ticksEspera
             } else {
                 Inst_ScrollActivo[i] := false
                 Inst_ScrollFase[i] := 0
                 return 1
             }
         } else {
-            Inst_SkipTick[i] := 1  ; esperar 1 tick antes del siguiente swipe
+            Inst_SkipTick[i] := ticksEspera
         }
         return 0
     }
@@ -1849,7 +1875,9 @@ LoopPrincipal:
                     else
                         Inst_P8Int[i] := 0
                     Inst_Paso[i] := 2
-                    Inst_SkipTick[i] := 2
+                    ; Esperar más para que cargue la pantalla de batalla
+                    intervaloActual := RR_Intervalo > 0 ? RR_Intervalo : IntervaloLoop
+                    Inst_SkipTick[i] := Ceil(2000 / intervaloActual)
                     Inst_LastExito[i] := A_TickCount
                 }
             }
@@ -2403,7 +2431,9 @@ ProcesarInstancia(i) {
             Inst_ErrCon[i] := 0
             Inst_P1Int[i] := 0
             Inst_Paso[i] := 2
-            Inst_SkipTick[i] := 2
+            ; Esperar más para que cargue la pantalla de batalla (Auto/Iniciar)
+            intervaloActual := RR_Intervalo > 0 ? RR_Intervalo : IntervaloLoop
+            Inst_SkipTick[i] := Ceil(2000 / intervaloActual)
             return
         }
 
@@ -2442,12 +2472,12 @@ ProcesarInstancia(i) {
         return
     }
 
-    ; Buscar imagen (sin scroll bloqueante - si no la encuentra, hace un scroll
-    ; y vuelve en el siguiente tick gracias al SkipTick de cooldown)
+    ; Buscar imagen (sin scroll bloqueante)
+    ; P2 (Auto) y P3 (Iniciar) NO deben hacer scroll: son botones fijos en pantalla
     imagenEncontrada := false
     if (BuscarImagenEnVentana(hwnd, imgActual, foundX, foundY)) {
         imagenEncontrada := true
-    } else if (ScrollActivo && (ScrollEnPaso = 0 || ScrollEnPaso = paso)) {
+    } else if (paso != 2 && paso != 3 && ScrollActivo && (ScrollEnPaso = 0 || ScrollEnPaso = paso)) {
         ; No encontrada: scroll no-bloqueante y reintentar en el siguiente tick
         IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
     }
@@ -2463,6 +2493,11 @@ ProcesarInstancia(i) {
     } else {
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         Inst_Errores[i] := Inst_Errores[i] + 1
+
+        ; P2/P3 (Auto/Iniciar): dar más tiempo entre reintentos (pantalla puede estar cargando)
+        if (paso = 2 || paso = 3) {
+            Inst_SkipTick[i] := 1
+        }
 
         if (Mod(Inst_ErrCon[i], 10) = 0)
             LogI(i, "P" . paso . ": '" . nombrePaso . "' no encontrado (" . Inst_ErrCon[i] . ")")
