@@ -976,8 +976,6 @@ ADB_Conectar(i) {
             Inst_ADB_Res[i] := {w: 0, h: 0}
             LogI(i, "ADB conectado: " . device . " (resolución desconocida)")
         }
-        ; Abrir shell persistente para comandos rápidos
-        ADB_AbrirShell(i)
         return true
     }
 
@@ -987,61 +985,14 @@ ADB_Conectar(i) {
 }
 
 ; ============================================================================
-; FUNCIÓN: Ejecutar comando ADB (shell persistente por instancia)
-; Mantiene una sesión "adb shell" abierta para evitar crear procesos nuevos
+; FUNCIÓN: Ejecutar comando ADB (Run directo, sin cmd.exe, oculto)
 ; ============================================================================
-global Inst_ADB_Shell := {}     ; Objeto WScript.Shell.Exec por instancia
-global Inst_ADB_ShellOK := {}   ; true si la shell persistente está activa
-
-ADB_AbrirShell(i) {
-    global
+ADB_Cmd(i, comando) {
+    global ADB_Ruta
     device := Inst_ADB_Device[i]
     if (device = "" || ADB_Ruta = "")
-        return false
-
-    try {
-        wsh := ComObjCreate("WScript.Shell")
-        cmd := """" . ADB_Ruta . """ -s " . device . " shell"
-        proc := wsh.Exec(cmd)
-        Inst_ADB_Shell[i] := proc
-        Inst_ADB_ShellOK[i] := true
-        Sleep, 200  ; Dar tiempo a que la shell inicie
-        return true
-    } catch e {
-        LogI(i, "ADB shell error: " . e.Message)
-        Inst_ADB_ShellOK[i] := false
-        return false
-    }
-}
-
-ADB_Cmd(i, comando) {
-    global
-    ; Verificar que la shell persistente está activa
-    if (!Inst_ADB_ShellOK[i]) {
-        if (!ADB_AbrirShell(i))
-            return
-    }
-
-    try {
-        proc := Inst_ADB_Shell[i]
-        ; Verificar que el proceso sigue vivo
-        if (proc.Status != 0) {
-            ; Shell cerrada, reabrir
-            Inst_ADB_ShellOK[i] := false
-            if (!ADB_AbrirShell(i))
-                return
-            proc := Inst_ADB_Shell[i]
-        }
-        proc.StdIn.WriteLine(comando)
-    } catch e {
-        ; Shell muerta, reintentar una vez
-        Inst_ADB_ShellOK[i] := false
-        if (ADB_AbrirShell(i)) {
-            try {
-                Inst_ADB_Shell[i].StdIn.WriteLine(comando)
-            }
-        }
-    }
+        return
+    Run, "%ADB_Ruta%" -s %device% shell %comando%,, Hide
 }
 
 ; ============================================================================
@@ -1704,13 +1655,6 @@ DetenerInstancia(i) {
     Inst_ScrollActivo[i] := false
     Inst_ScrollFase[i] := 0
     Inst_RecupFase[i] := 0
-    ; Cerrar shell ADB si existe
-    if (Inst_ADB_ShellOK[i]) {
-        try {
-            Inst_ADB_Shell[i].StdIn.WriteLine("exit")
-        }
-        Inst_ADB_ShellOK[i] := false
-    }
     Inst_Estado[i] := "IDLE"
     LogI(i, "=== DETENIDO ===")
     ActualizarEstadoInst(i)
