@@ -150,6 +150,10 @@ global Inst_SkipTick := {}
 global Inst_LastExito := {}
 global Inst_RecuperacionTotal := {}
 
+; Estado de recuperación incremental por instancia
+global Inst_RecupFase := {}         ; 0=no en recuperación, 1-6=escaneando popup N
+global Inst_RecupOrigen := {}       ; paso de origen para log
+
 ; Estado de scroll no-bloqueante por instancia
 global Inst_ScrollActivo := {}      ; true/false - si hay un scroll en curso
 global Inst_ScrollHwndTarget := {}  ; hwnd del target del scroll
@@ -842,14 +846,11 @@ HacerClicEnVentana(hwnd, screenX, screenY) {
     relX := screenX - wx
     relY := screenY - wy
 
-    ControlClick, x%relX% y%relY%, ahk_id %hwnd%,, Left, 1, NA
-
-    if (ErrorLevel) {
-        lParam := (relY << 16) | (relX & 0xFFFF)
-        PostMessage, 0x201, 0x0001, %lParam%,, ahk_id %hwnd%
-        Sleep, 50
-        PostMessage, 0x202, 0x0000, %lParam%,, ahk_id %hwnd%
-    }
+    ; Usar PostMessage (asíncrono) para no bloquear el hilo
+    ; Enviar WM_LBUTTONDOWN + WM_LBUTTONUP directamente
+    lParam := (relY << 16) | (relX & 0xFFFF)
+    PostMessage, 0x201, 0x0001, %lParam%,, ahk_id %hwnd%   ; WM_LBUTTONDOWN
+    PostMessage, 0x202, 0x0000, %lParam%,, ahk_id %hwnd%   ; WM_LBUTTONUP
 }
 
 ; ============================================================================
@@ -1265,6 +1266,7 @@ ResetInstancia(i) {
     Inst_RecuperacionTotal[i] := 0
     Inst_ScrollActivo[i] := false
     Inst_ScrollFase[i] := 0
+    Inst_RecupFase[i] := 0
 }
 
 ; Helper: leer expansión/batalla de los DDLs de una instancia
@@ -1365,6 +1367,7 @@ DetenerInstancia(i) {
     Inst_Pausado[i] := false
     Inst_ScrollActivo[i] := false
     Inst_ScrollFase[i] := 0
+    Inst_RecupFase[i] := 0
     Inst_Estado[i] := "IDLE"
     LogI(i, "=== DETENIDO ===")
     ActualizarEstadoInst(i)
@@ -1459,8 +1462,16 @@ LoopPrincipal:
             Inst_TapInt[i] := 0
             Inst_NBInt[i] := 0
             Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
+            Inst_ScrollActivo[i] := false
+            Inst_ScrollFase[i] := 0
             Inst_Paso[i] := RecuperacionInteligente(i, hwnd, Inst_Paso[i])
             Inst_LastExito[i] := A_TickCount  ; Reset para no disparar cada tick
+            continue
+        }
+
+        ; Si hay una recuperación en curso, procesarla (1 popup por tick)
+        if (Inst_RecupFase[i] > 0) {
+            ProcesarRecuperacion(i)
             continue
         }
 
@@ -1543,58 +1554,119 @@ ScanearPopups(hwnd, ByRef outX, ByRef outY) {
 }
 
 ; ============================================================================
-; FUNCIÓN: Recuperación inteligente
-; En vez de ir ciegamente a P1, escanea qué hay en pantalla y decide el paso
-; correcto. Retorna el paso sugerido.
+; FUNCIÓN: Iniciar recuperación inteligente incremental
+; En vez de escanear 6 imágenes de golpe, activa modo recuperación.
+; ProcesarRecuperacion() se encarga de buscar 1 popup por tick.
 ; ============================================================================
 RecuperacionInteligente(i, hwnd, pasoOrigen) {
     global
+    Inst_RecupFase[i] := 1
+    Inst_RecupOrigen[i] := pasoOrigen
+    LogI(i, "RECUP[P" . pasoOrigen . "]: Iniciando escaneo incremental...")
+    ; Retorna el paso actual como placeholder - ProcesarRecuperacion lo cambiará
+    return Inst_Paso[i]
+}
+
+; ============================================================================
+; FUNCIÓN: Procesar recuperación incremental (1 búsqueda por tick)
+; Retorna true si la recuperación sigue en curso, false si terminó
+; ============================================================================
+ProcesarRecuperacion(i) {
+    global
+    fase := Inst_RecupFase[i]
+    if (fase = 0)
+        return false
+
+    hwnd := Inst_Hwnd[i]
+    pasoOrigen := Inst_RecupOrigen[i]
     foundX := 0
     foundY := 0
 
-    popup := ScanearPopups(hwnd, foundX, foundY)
+    ; Fase 1: Buscar OK
+    if (fase = 1) {
+        if (BuscarImagenEnVentana(hwnd, IMG_OK, foundX, foundY)) {
+            LogI(i, "RECUP[P" . pasoOrigen . "]: Popup OK detectado. Clic + ir a P8")
+            HacerClicEnVentana(hwnd, foundX, foundY)
+            Inst_SkipTick[i] := 2
+            Inst_Paso[i] := 8
+            Inst_RecupFase[i] := 0
+            return true
+        }
+        Inst_RecupFase[i] := 2
+        return true
+    }
+    ; Fase 2: Buscar X
+    if (fase = 2) {
+        if (BuscarImagenEnVentana(hwnd, IMG_EQUIS, foundX, foundY)) {
+            LogI(i, "RECUP[P" . pasoOrigen . "]: Popup X detectado. Clic + ir a P1")
+            HacerClicEnVentana(hwnd, foundX, foundY)
+            Inst_SkipTick[i] := 2
+            Inst_Paso[i] := 1
+            Inst_RecupFase[i] := 0
+            return true
+        }
+        Inst_RecupFase[i] := 3
+        return true
+    }
+    ; Fase 3: Buscar NEXT
+    if (fase = 3) {
+        if (BuscarImagenEnVentana(hwnd, IMG_NEXT, foundX, foundY)) {
+            LogI(i, "RECUP[P" . pasoOrigen . "]: NEXT detectado. Clic + ir a P6")
+            HacerClicEnVentana(hwnd, foundX, foundY)
+            Inst_SkipTick[i] := 2
+            Inst_RutaPN[i] := 6
+            Inst_Paso[i] := 6
+            Inst_RecupFase[i] := 0
+            return true
+        }
+        Inst_RecupFase[i] := 4
+        return true
+    }
+    ; Fase 4: Buscar TAP
+    if (fase = 4) {
+        if (BuscarImagenEnVentana(hwnd, IMG_TAP, foundX, foundY)) {
+            LogI(i, "RECUP[P" . pasoOrigen . "]: TAP detectado. Clic + ir a P5")
+            HacerClicEnVentana(hwnd, foundX, foundY)
+            Inst_SkipTick[i] := 2
+            Inst_TapInt[i] := 0
+            Inst_RutaPN[i] := 6
+            Inst_Paso[i] := 5
+            Inst_RecupFase[i] := 0
+            return true
+        }
+        Inst_RecupFase[i] := 5
+        return true
+    }
+    ; Fase 5: Buscar VICTORIA
+    if (fase = 5) {
+        if (BuscarImagenEnVentana(hwnd, IMG_VICTORIA, foundX, foundY)) {
+            LogI(i, "RECUP[P" . pasoOrigen . "]: Victoria detectada. Ir a P4")
+            Inst_ResInt[i] := 0
+            Inst_Paso[i] := 4
+            Inst_RecupFase[i] := 0
+            return true
+        }
+        Inst_RecupFase[i] := 6
+        return true
+    }
+    ; Fase 6: Buscar DERROTA
+    if (fase = 6) {
+        if (BuscarImagenEnVentana(hwnd, IMG_DERROTA, foundX, foundY)) {
+            LogI(i, "RECUP[P" . pasoOrigen . "]: Derrota detectada. Ir a P4")
+            Inst_ResInt[i] := 0
+            Inst_Paso[i] := 4
+            Inst_RecupFase[i] := 0
+            return true
+        }
+        ; Nada encontrado: ir a P1 como último recurso
+        LogI(i, "RECUP[P" . pasoOrigen . "]: Nada detectado. Volviendo a P1")
+        Inst_Paso[i] := 1
+        Inst_RecupFase[i] := 0
+        return true
+    }
 
-    if (popup = "OK") {
-        LogI(i, "RECUP[P" . pasoOrigen . "]: Popup OK detectado. Clic + ir a P8")
-        HacerClicEnVentana(hwnd, foundX, foundY)
-        Inst_SkipTick[i] := 2
-        return 8
-    }
-    if (popup = "X") {
-        LogI(i, "RECUP[P" . pasoOrigen . "]: Popup X detectado. Clic + ir a P1")
-        HacerClicEnVentana(hwnd, foundX, foundY)
-        Inst_SkipTick[i] := 2
-        return 1
-    }
-    if (popup = "NEXT") {
-        LogI(i, "RECUP[P" . pasoOrigen . "]: NEXT detectado. Clic + ir a P6")
-        HacerClicEnVentana(hwnd, foundX, foundY)
-        Inst_SkipTick[i] := 2
-        Inst_RutaPN[i] := 6
-        return 6
-    }
-    if (popup = "TAP") {
-        LogI(i, "RECUP[P" . pasoOrigen . "]: TAP detectado. Clic + ir a P5")
-        HacerClicEnVentana(hwnd, foundX, foundY)
-        Inst_SkipTick[i] := 2
-        Inst_TapInt[i] := 0
-        Inst_RutaPN[i] := 6
-        return 5
-    }
-    if (popup = "VICTORIA") {
-        LogI(i, "RECUP[P" . pasoOrigen . "]: Victoria detectada. Ir a P4")
-        Inst_ResInt[i] := 0
-        return 4
-    }
-    if (popup = "DERROTA") {
-        LogI(i, "RECUP[P" . pasoOrigen . "]: Derrota detectada. Ir a P4")
-        Inst_ResInt[i] := 0
-        return 4
-    }
-
-    ; Nada encontrado: ir a P1 como último recurso
-    LogI(i, "RECUP[P" . pasoOrigen . "]: Nada detectado. Volviendo a P1")
-    return 1
+    Inst_RecupFase[i] := 0
+    return false
 }
 
 ; ============================================================================
@@ -1622,7 +1694,7 @@ ProcesarInstancia(i) {
     Inst_Estado[i] := "P" . paso . "/" . TotalPasos . ": " . nombrePaso . " [E" . exp . "]"
 
     ; ================================================================
-    ; PASO 4: Escanear victoria O derrota (con cooldown de 3s)
+    ; PASO 4: Escanear victoria O derrota (alternando, 1 búsqueda por tick)
     ; ================================================================
     if (paso = 4) {
         Inst_ResInt[i] := Inst_ResInt[i] + 1
@@ -1633,31 +1705,32 @@ ProcesarInstancia(i) {
 
         Inst_Estado[i] := "P4: Resultado... (" . resInt . "/40)"
 
-        ; Buscar DERROTA
-        if (BuscarImagenEnVentana(hwnd, IMG_DERROTA, foundX, foundY)) {
-            LogI(i, "DERROTA en intento " . resInt)
-            Inst_ErrCon[i] := 0
-            Inst_ResInt[i] := 0
-            Inst_TapInt[i] := 0
-            Inst_RutaPN[i] := 9
-            Inst_Paso[i] := 5
-            LogI(i, ">>> Ruta derrota: P5 (Tap->Next->CerrarX)")
-            return
-        }
-
-        ; Buscar VICTORIA
-        if (BuscarImagenEnVentana(hwnd, IMG_VICTORIA, foundX, foundY)) {
-            LogI(i, "VICTORIA en intento " . resInt)
-            HacerClicEnVentana(hwnd, foundX, foundY)
-            Inst_ErrCon[i] := 0
-            Inst_Ataques[i] := Inst_Ataques[i] + 1
-            Inst_ResInt[i] := 0
-            Inst_TapInt[i] := 0
-            Inst_RutaPN[i] := 6
-            Inst_Paso[i] := 5
-            Inst_SkipTick[i] := 2
-            LogI(i, ">>> Ruta victoria: P5 (Tap->Next->NuevaBatalla)")
-            return
+        ; Alternar: ticks impares buscan DERROTA, pares buscan VICTORIA
+        if (Mod(resInt, 2) = 1) {
+            if (BuscarImagenEnVentana(hwnd, IMG_DERROTA, foundX, foundY)) {
+                LogI(i, "DERROTA en intento " . resInt)
+                Inst_ErrCon[i] := 0
+                Inst_ResInt[i] := 0
+                Inst_TapInt[i] := 0
+                Inst_RutaPN[i] := 9
+                Inst_Paso[i] := 5
+                LogI(i, ">>> Ruta derrota: P5 (Tap->Next->CerrarX)")
+                return
+            }
+        } else {
+            if (BuscarImagenEnVentana(hwnd, IMG_VICTORIA, foundX, foundY)) {
+                LogI(i, "VICTORIA en intento " . resInt)
+                HacerClicEnVentana(hwnd, foundX, foundY)
+                Inst_ErrCon[i] := 0
+                Inst_Ataques[i] := Inst_Ataques[i] + 1
+                Inst_ResInt[i] := 0
+                Inst_TapInt[i] := 0
+                Inst_RutaPN[i] := 6
+                Inst_Paso[i] := 5
+                Inst_SkipTick[i] := 2
+                LogI(i, ">>> Ruta victoria: P5 (Tap->Next->NuevaBatalla)")
+                return
+            }
         }
 
         ; Cooldown de ~3 segundos entre intentos (skip ticks)
@@ -1687,24 +1760,25 @@ ProcesarInstancia(i) {
 
         Inst_Estado[i] := "P5: Tap->Next (" . tapInt . "/" . MaxTapIntentos . ")"
 
-        ; Primero buscar NEXT
-        if (BuscarImagenEnVentana(hwnd, IMG_NEXT, foundX, foundY)) {
-            LogI(i, "Next encontrado. Clic...")
-            HacerClicEnVentana(hwnd, foundX, foundY)
-            Inst_ErrCon[i] := 0
-            Inst_TapInt[i] := 0
-            Inst_Paso[i] := Inst_RutaPN[i]
-            Inst_SkipTick[i] := 2
-            LogI(i, ">>> Volviendo a P" . Inst_RutaPN[i])
-            return
-        }
-
-        ; Si no hay Next, buscar TAP
-        if (BuscarImagenEnVentana(hwnd, IMG_TAP, foundX, foundY)) {
-            LogI(i, "Tap encontrado. Clic...")
-            HacerClicEnVentana(hwnd, foundX, foundY)
-            Inst_SkipTick[i] := 2
-            return
+        ; Alternar: ticks impares buscan NEXT, pares buscan TAP (1 búsqueda por tick)
+        if (Mod(tapInt, 2) = 1) {
+            if (BuscarImagenEnVentana(hwnd, IMG_NEXT, foundX, foundY)) {
+                LogI(i, "Next encontrado. Clic...")
+                HacerClicEnVentana(hwnd, foundX, foundY)
+                Inst_ErrCon[i] := 0
+                Inst_TapInt[i] := 0
+                Inst_Paso[i] := Inst_RutaPN[i]
+                Inst_SkipTick[i] := 2
+                LogI(i, ">>> Volviendo a P" . Inst_RutaPN[i])
+                return
+            }
+        } else {
+            if (BuscarImagenEnVentana(hwnd, IMG_TAP, foundX, foundY)) {
+                LogI(i, "Tap encontrado. Clic...")
+                HacerClicEnVentana(hwnd, foundX, foundY)
+                Inst_SkipTick[i] := 2
+                return
+            }
         }
 
         if (Mod(tapInt, 10) = 0)
