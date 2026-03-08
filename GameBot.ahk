@@ -843,6 +843,8 @@ HacerScrollEnVentana(hwnd, relX, relY, cantidad) {
     distancia := cantidad * 40
     yInicio := relY + (distancia // 2)
     yFin := relY - (distancia // 2)
+    if (yInicio < 10)
+        yInicio := 10
     if (yFin < 10)
         yFin := 10
 
@@ -883,10 +885,18 @@ HacerScrollEnVentana(hwnd, relX, relY, cantidad) {
     if (pasos < 1)
         pasos := 1
 
+    ; Determinar dirección: -1 = arrastrar hacia arriba (scroll abajo), +1 = arrastrar hacia abajo (scroll arriba)
+    direccion := (childYInicio > childYFin) ? -1 : 1
+
     Loop, %pasos% {
-        yActual := childYInicio - (A_Index * pasoSize)
-        if (yActual < childYFin)
-            yActual := childYFin
+        yActual := childYInicio + (A_Index * pasoSize * direccion)
+        if (direccion = -1) {
+            if (yActual < childYFin)
+                yActual := childYFin
+        } else {
+            if (yActual > childYFin)
+                yActual := childYFin
+        }
         lParam := ((yActual & 0xFFFF) << 16) | (childX & 0xFFFF)
         DllCall("SendMessageW", "Ptr", hwndTarget, "UInt", 0x200, "Ptr", 0x0001, "Ptr", lParam)
         Sleep, 15
@@ -1569,9 +1579,21 @@ ProcesarInstancia(i) {
                 HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2)
             Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop) + 3
         } else {
+            ; Scroll + re-buscar para no saltarse la imagen
+            HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
+            Sleep, 300
+            if (BuscarImagenEnVentana(hwnd, imgBat, foundX, foundY)) {
+                LogI(i, "P8: '" . nomBat . "' encontrado (post-scroll)")
+                HacerClicEnVentana(hwnd, foundX, foundY)
+                Inst_Ataques[i] := Inst_Ataques[i] + 1
+                Inst_ErrCon[i] := 0
+                Inst_P8Int[i] := 0
+                Inst_Paso[i] := 2
+                Inst_SkipTick[i] := 2
+                return
+            }
             if (Mod(Inst_P8Int[i], 5) = 0)
                 LogI(i, "P8: '" . nomBat . "' no encontrado. Scroll... (" . Inst_P8Int[i] . ")")
-            HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
             Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
         }
 
@@ -1735,6 +1757,7 @@ ProcesarInstancia(i) {
         Inst_P1Int[i] := Inst_P1Int[i] + 1
         Inst_Estado[i] := "P1: " . nomBat1 . " (" . Inst_P1Int[i] . ")"
 
+        ; Buscar imagen antes del scroll
         if (BuscarImagenEnVentana(hwnd, imgBat1, foundX, foundY)) {
             LogI(i, "P1: '" . nomBat1 . "' encontrado")
             HacerClicEnVentana(hwnd, foundX, foundY)
@@ -1753,9 +1776,23 @@ ProcesarInstancia(i) {
                 HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2)
             Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop) + 3
         } else {
+            ; Scroll + re-buscar: hacer scroll pequeño y buscar de nuevo
+            ; para no saltarse la imagen entre posiciones de scroll
+            HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
+            Sleep, 300
+            ; Segunda búsqueda tras el scroll
+            if (BuscarImagenEnVentana(hwnd, imgBat1, foundX, foundY)) {
+                LogI(i, "P1: '" . nomBat1 . "' encontrado (post-scroll)")
+                HacerClicEnVentana(hwnd, foundX, foundY)
+                Inst_Ataques[i] := Inst_Ataques[i] + 1
+                Inst_ErrCon[i] := 0
+                Inst_P1Int[i] := 0
+                Inst_Paso[i] := 2
+                Inst_SkipTick[i] := 2
+                return
+            }
             if (Mod(Inst_P1Int[i], 5) = 0)
                 LogI(i, "P1: '" . nomBat1 . "' no encontrado. Scroll... (" . Inst_P1Int[i] . ")")
-            HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
             Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
         }
 
