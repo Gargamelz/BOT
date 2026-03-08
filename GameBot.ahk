@@ -1811,9 +1811,8 @@ DetectarVentanaInst(i) {
         ; Solo ventanas visibles (WS_VISIBLE)
         if !(estilo & 0x10000000)
             continue
-        ; Solo ventanas top-level (sin parent) y de tamaño razonable
-        hwndParent := DllCall("GetParent", "Ptr", hwnd, "Ptr")
-        if (hwndParent != 0)
+        ; Filtrar ventanas child (auxiliares) y ventanas muy pequeñas
+        if (estilo & 0x40000000)  ; WS_CHILD
             continue
         WinGetPos,,, tmpW, tmpH, ahk_id %hwnd%
         if (tmpW < 200 || tmpH < 200)
@@ -1932,9 +1931,8 @@ AutoDetectar:
         WinGet, estilo, Style, ahk_id %hwnd%
         if !(estilo & 0x10000000)
             continue
-        ; Solo ventanas top-level (sin parent) y de tamaño razonable
-        hwndParent := DllCall("GetParent", "Ptr", hwnd, "Ptr")
-        if (hwndParent != 0)
+        ; Filtrar ventanas child (auxiliares) y ventanas muy pequeñas
+        if (estilo & 0x40000000)  ; WS_CHILD
             continue
         WinGetPos,,, tmpW, tmpH, ahk_id %hwnd%
         if (tmpW < 200 || tmpH < 200)
