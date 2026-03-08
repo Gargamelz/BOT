@@ -1832,7 +1832,8 @@ DetectarVentanaInst(i) {
         ; Obtener PID y clase para distinguir ventanas con mismo título
         WinGet, pid, PID, ahk_id %hwnd%
         WinGetClass, clase, ahk_id %hwnd%
-        listaVentanas .= hwnd . "|" . titulo . "|" . pid . "|" . clase . "`n"
+        hwndNum := hwnd + 0
+        listaVentanas .= hwndNum . "|" . titulo . "|" . pid . "|" . clase . "`n"
     }
 
     if (listaVentanas = "") {
@@ -1879,7 +1880,7 @@ SelVentOK:
     }
 
     ; Extraer HWND del texto "[hwnd]"
-    RegExMatch(seleccion, "\[(\d+)\]", m)
+    RegExMatch(seleccion, "\[([^\]]+)\]", m)
     hwndSel := m1 + 0
     if (hwndSel = 0) {
         MsgBox, 16, Error, No se pudo obtener el HWND.
