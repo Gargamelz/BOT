@@ -721,7 +721,7 @@ FlushLog() {
 ; FUNCIÓN: Actualizar estado de una instancia en la GUI
 ; ============================================================================
 ActualizarEstadoInst(i) {
-    global Inst_Activo, Inst_Pausado, Inst_Estado, Inst_Ciclos, Inst_Ataques, Inst_Errores
+    global Inst_Activo, Inst_Pausado, Inst_Estado, Inst_Ciclos, Inst_Ataques, Inst_Errores, Inst_RecuperacionTotal
 
     if (!Inst_Activo[i])
         estado := "IDLE"
@@ -1394,18 +1394,6 @@ ProcesarInstancia(i) {
             return
         }
 
-        ; Cada 10 intentos sin resultado, escanear popups inesperados
-        if (Mod(resInt, 10) = 0 && resInt < 40) {
-            popup := ScanearPopups(hwnd, foundX, foundY)
-            if (popup != "") {
-                LogI(i, "P4: Popup inesperado '" . popup . "' detectado en intento " . resInt)
-                Inst_ResInt[i] := 0
-                Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 4)
-                Inst_ErrCon[i] := 0
-                return
-            }
-        }
-
         ; Cooldown de ~3 segundos entre intentos (skip ticks)
         ticksPor3s := Ceil(3000 / IntervaloLoop)
         if (ticksPor3s < 1)
@@ -1451,18 +1439,6 @@ ProcesarInstancia(i) {
             HacerClicEnVentana(hwnd, foundX, foundY)
             Inst_SkipTick[i] := 2
             return
-        }
-
-        ; Cada 8 intentos sin TAP/NEXT, escanear popups inesperados (OK, X, victoria, derrota)
-        if (Mod(tapInt, 8) = 0 && tapInt < MaxTapIntentos) {
-            popup := ScanearPopups(hwnd, foundX, foundY)
-            if (popup = "OK" || popup = "X" || popup = "VICTORIA" || popup = "DERROTA") {
-                LogI(i, "P5: Popup inesperado '" . popup . "' en intento " . tapInt)
-                Inst_TapInt[i] := 0
-                Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 5)
-                Inst_ErrCon[i] := 0
-                return
-            }
         }
 
         if (Mod(tapInt, 10) = 0)
@@ -1821,7 +1797,7 @@ DetectarVentana5:
 return
 
 DetectarVentanaInst(i) {
-    global Inst_Hwnd, Inst_Titulo, MAX_INST
+    global Inst_Hwnd, Inst_Titulo, MAX_INST, SelVentLista, SelVentInstancia
 
     ; Listar ventanas disponibles (excluir la propia GUI y ventanas del sistema)
     listaVentanas := ""
