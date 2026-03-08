@@ -150,6 +150,22 @@ global Inst_SkipTick := {}
 global Inst_LastExito := {}
 global Inst_RecuperacionTotal := {}
 
+; Estado de scroll no-bloqueante por instancia
+global Inst_ScrollActivo := {}      ; true/false - si hay un scroll en curso
+global Inst_ScrollHwndTarget := {}  ; hwnd del target del scroll
+global Inst_ScrollChildX := {}      ; coordenada X del scroll
+global Inst_ScrollYActual := {}     ; posición Y actual del arrastre
+global Inst_ScrollYFin := {}        ; posición Y final del arrastre
+global Inst_ScrollDir := {}         ; -1 o +1 dirección del arrastre
+global Inst_ScrollPasoSize := {}    ; tamaño de cada paso (8px)
+global Inst_ScrollPasos := {}       ; pasos restantes
+global Inst_ScrollFase := {}        ; 0=idle, 1=arrastrando, 2=soltar, 3=buscar-post-scroll
+global Inst_ScrollPostImg := {}     ; imagen a buscar tras scroll (o "" si ninguna)
+global Inst_ScrollRepetir := {}     ; repeticiones de scroll pendientes (para scroll inverso)
+global Inst_ScrollCantidad := {}    ; cantidad original (para repeticiones)
+global Inst_ScrollRelX := {}        ; relX original (para repeticiones)
+global Inst_ScrollRelY := {}        ; relY original (para repeticiones)
+
 ; Cache de dimensiones de imagen y existencia de archivos
 global ImgDimCache := {}
 global FileExistCache := {}
@@ -837,7 +853,190 @@ HacerClicEnVentana(hwnd, screenX, screenY) {
 }
 
 ; ============================================================================
-; FUNCIÓN: Hacer swipe en ventana por HWND
+; FUNCIÓN: Iniciar swipe NO-BLOQUEANTE en ventana por HWND
+; En vez de hacer todo el scroll con Sleeps, programa la máquina de estados
+; para que ProcesarScroll() avance unos pasos cada tick del timer.
+; repeticiones: cuántas veces repetir el scroll (para scroll inverso grande)
+; imgPostScroll: ruta de imagen a buscar después del scroll ("" = ninguna)
+; ============================================================================
+IniciarScroll(i, hwnd, relX, relY, cantidad, repeticiones := 1, imgPostScroll := "") {
+    global
+
+    if (!hwnd)
+        return
+
+    Inst_ScrollRepetir[i] := repeticiones
+    Inst_ScrollCantidad[i] := cantidad
+    Inst_ScrollRelX[i] := relX
+    Inst_ScrollRelY[i] := relY
+    Inst_ScrollPostImg[i] := imgPostScroll
+
+    ; Iniciar la primera repetición
+    _IniciarScrollUnico(i, hwnd, relX, relY, cantidad)
+}
+
+; Helper interno: prepara un solo scroll
+_IniciarScrollUnico(i, hwnd, relX, relY, cantidad) {
+    global
+
+    distancia := cantidad * 40
+    yInicio := relY + (distancia // 2)
+    yFin := relY - (distancia // 2)
+    if (yInicio < 10)
+        yInicio := 10
+    if (yFin < 10)
+        yFin := 10
+
+    pointVal := ((relY & 0xFFFFFFFF) << 32) | (relX & 0xFFFFFFFF)
+    hwndHijo := DllCall("RealChildWindowFromPoint", "Ptr", hwnd, "Int64", pointVal, "Ptr")
+
+    if (hwndHijo && hwndHijo != hwnd) {
+        hwndTarget := hwndHijo
+        VarSetCapacity(ptInicio, 8, 0)
+        NumPut(relX, ptInicio, 0, "Int")
+        NumPut(yInicio, ptInicio, 4, "Int")
+        DllCall("MapWindowPoints", "Ptr", hwnd, "Ptr", hwndHijo, "Ptr", &ptInicio, "UInt", 1)
+        childX := NumGet(ptInicio, 0, "Int")
+        childYInicio := NumGet(ptInicio, 4, "Int")
+
+        VarSetCapacity(ptFin, 8, 0)
+        NumPut(relX, ptFin, 0, "Int")
+        NumPut(yFin, ptFin, 4, "Int")
+        DllCall("MapWindowPoints", "Ptr", hwnd, "Ptr", hwndHijo, "Ptr", &ptFin, "UInt", 1)
+        childYFin := NumGet(ptFin, 4, "Int")
+    } else {
+        hwndTarget := hwnd
+        childX := relX
+        childYInicio := yInicio
+        childYFin := yFin
+    }
+
+    totalDist := Abs(childYInicio - childYFin)
+    pasoSize := 8
+    pasos := totalDist // pasoSize
+    if (pasos < 1)
+        pasos := 1
+    direccion := (childYInicio > childYFin) ? -1 : 1
+
+    ; Enviar WM_LBUTTONDOWN (inicio del arrastre) - PostMessage no bloquea
+    lParamDown := ((childYInicio & 0xFFFF) << 16) | (childX & 0xFFFF)
+    PostMessage, 0x201, 0x0001, %lParamDown%,, ahk_id %hwndTarget%
+
+    ; Guardar estado para que ProcesarScroll avance
+    Inst_ScrollActivo[i] := true
+    Inst_ScrollHwndTarget[i] := hwndTarget
+    Inst_ScrollChildX[i] := childX
+    Inst_ScrollYActual[i] := childYInicio
+    Inst_ScrollYFin[i] := childYFin
+    Inst_ScrollDir[i] := direccion
+    Inst_ScrollPasoSize[i] := pasoSize
+    Inst_ScrollPasos[i] := pasos
+    Inst_ScrollFase[i] := 1  ; fase arrastrando
+}
+
+; ============================================================================
+; FUNCIÓN: Procesar scroll no-bloqueante (llamar desde el loop principal)
+; Avanza varios pasos de arrastre por tick sin Sleep. Retorna:
+;   0 = scroll aún en curso
+;   1 = scroll terminado (sin búsqueda post-scroll)
+;   2 = scroll terminado + imagen post-scroll encontrada
+;  -1 = scroll terminado + imagen post-scroll NO encontrada
+; ============================================================================
+ProcesarScroll(i) {
+    global
+
+    if (!Inst_ScrollActivo[i])
+        return 1
+
+    hwndTarget := Inst_ScrollHwndTarget[i]
+    childX := Inst_ScrollChildX[i]
+    fase := Inst_ScrollFase[i]
+
+    ; FASE 1: Avanzar arrastre (enviar varios WM_MOUSEMOVE por tick)
+    if (fase = 1) {
+        pasosRestantes := Inst_ScrollPasos[i]
+        pasoSize := Inst_ScrollPasoSize[i]
+        dir := Inst_ScrollDir[i]
+        yFin := Inst_ScrollYFin[i]
+
+        ; Enviar hasta 10 pasos de movimiento por tick (no bloqueante)
+        pasosPorTick := 10
+        if (pasosPorTick > pasosRestantes)
+            pasosPorTick := pasosRestantes
+
+        Loop, %pasosPorTick% {
+            Inst_ScrollYActual[i] := Inst_ScrollYActual[i] + (pasoSize * dir)
+            yActual := Inst_ScrollYActual[i]
+            if (dir = -1) {
+                if (yActual < yFin)
+                    yActual := yFin
+            } else {
+                if (yActual > yFin)
+                    yActual := yFin
+            }
+            Inst_ScrollYActual[i] := yActual
+            lParam := ((yActual & 0xFFFF) << 16) | (childX & 0xFFFF)
+            PostMessage, 0x200, 0x0001, %lParam%,, ahk_id %hwndTarget%
+        }
+
+        Inst_ScrollPasos[i] := pasosRestantes - pasosPorTick
+        if (Inst_ScrollPasos[i] <= 0)
+            Inst_ScrollFase[i] := 2  ; siguiente tick: soltar
+        return 0
+    }
+
+    ; FASE 2: Soltar (WM_LBUTTONUP)
+    if (fase = 2) {
+        yFin := Inst_ScrollYFin[i]
+        lParamUp := ((yFin & 0xFFFF) << 16) | (childX & 0xFFFF)
+        PostMessage, 0x202, 0x0000, %lParamUp%,, ahk_id %hwndTarget%
+
+        ; ¿Hay más repeticiones? (para scroll inverso grande)
+        Inst_ScrollRepetir[i] := Inst_ScrollRepetir[i] - 1
+        if (Inst_ScrollRepetir[i] > 0) {
+            ; Iniciar siguiente repetición
+            hwnd := Inst_Hwnd[i]
+            _IniciarScrollUnico(i, hwnd, Inst_ScrollRelX[i], Inst_ScrollRelY[i], Inst_ScrollCantidad[i])
+            return 0
+        }
+
+        ; ¿Hay imagen post-scroll para buscar?
+        if (Inst_ScrollPostImg[i] != "") {
+            Inst_ScrollFase[i] := 3  ; siguiente tick: buscar imagen
+            return 0
+        }
+
+        ; Terminado sin búsqueda
+        Inst_ScrollActivo[i] := false
+        Inst_ScrollFase[i] := 0
+        return 1
+    }
+
+    ; FASE 3: Buscar imagen post-scroll
+    if (fase = 3) {
+        Inst_ScrollActivo[i] := false
+        Inst_ScrollFase[i] := 0
+
+        hwnd := Inst_Hwnd[i]
+        imgBuscar := Inst_ScrollPostImg[i]
+        foundX := 0
+        foundY := 0
+        if (BuscarImagenEnVentana(hwnd, imgBuscar, foundX, foundY)) {
+            Inst_ScrollPostImg[i] := ""
+            return 2  ; encontrada - quien llama debe usar foundX/foundY de la instancia
+        }
+        Inst_ScrollPostImg[i] := ""
+        return -1  ; no encontrada
+    }
+
+    ; Estado inválido - resetear
+    Inst_ScrollActivo[i] := false
+    Inst_ScrollFase[i] := 0
+    return 1
+}
+
+; ============================================================================
+; FUNCIÓN: Hacer swipe BLOQUEANTE (solo para pruebas de GUI / "Probar Swipe")
 ; ============================================================================
 HacerScrollEnVentana(hwnd, relX, relY, cantidad) {
     distancia := cantidad * 40
@@ -876,7 +1075,7 @@ HacerScrollEnVentana(hwnd, relX, relY, cantidad) {
     }
 
     lParamDown := ((childYInicio & 0xFFFF) << 16) | (childX & 0xFFFF)
-    DllCall("SendMessageW", "Ptr", hwndTarget, "UInt", 0x201, "Ptr", 0x0001, "Ptr", lParamDown)
+    PostMessage, 0x201, 0x0001, %lParamDown%,, ahk_id %hwndTarget%
     Sleep, 50
 
     totalDist := Abs(childYInicio - childYFin)
@@ -884,8 +1083,6 @@ HacerScrollEnVentana(hwnd, relX, relY, cantidad) {
     pasos := totalDist // pasoSize
     if (pasos < 1)
         pasos := 1
-
-    ; Determinar dirección: -1 = arrastrar hacia arriba (scroll abajo), +1 = arrastrar hacia abajo (scroll arriba)
     direccion := (childYInicio > childYFin) ? -1 : 1
 
     Loop, %pasos% {
@@ -898,13 +1095,13 @@ HacerScrollEnVentana(hwnd, relX, relY, cantidad) {
                 yActual := childYFin
         }
         lParam := ((yActual & 0xFFFF) << 16) | (childX & 0xFFFF)
-        DllCall("SendMessageW", "Ptr", hwndTarget, "UInt", 0x200, "Ptr", 0x0001, "Ptr", lParam)
+        PostMessage, 0x200, 0x0001, %lParam%,, ahk_id %hwndTarget%
         Sleep, 15
     }
 
     Sleep, 30
     lParamUp := ((childYFin & 0xFFFF) << 16) | (childX & 0xFFFF)
-    DllCall("SendMessageW", "Ptr", hwndTarget, "UInt", 0x202, "Ptr", 0x0000, "Ptr", lParamUp)
+    PostMessage, 0x202, 0x0000, %lParamUp%,, ahk_id %hwndTarget%
     Sleep, 50
 }
 
@@ -1066,6 +1263,8 @@ ResetInstancia(i) {
     Inst_SkipTick[i] := 0
     Inst_LastExito[i] := A_TickCount
     Inst_RecuperacionTotal[i] := 0
+    Inst_ScrollActivo[i] := false
+    Inst_ScrollFase[i] := 0
 }
 
 ; Helper: leer expansión/batalla de los DDLs de una instancia
@@ -1164,6 +1363,8 @@ DetenerInstancia(i) {
         return
     Inst_Activo[i] := false
     Inst_Pausado[i] := false
+    Inst_ScrollActivo[i] := false
+    Inst_ScrollFase[i] := 0
     Inst_Estado[i] := "IDLE"
     LogI(i, "=== DETENIDO ===")
     ActualizarEstadoInst(i)
@@ -1260,6 +1461,44 @@ LoopPrincipal:
             Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
             Inst_Paso[i] := RecuperacionInteligente(i, hwnd, Inst_Paso[i])
             Inst_LastExito[i] := A_TickCount  ; Reset para no disparar cada tick
+            continue
+        }
+
+        ; Si hay un scroll en curso, procesarlo en vez de la lógica normal
+        if (Inst_ScrollActivo[i]) {
+            resultado := ProcesarScroll(i)
+            if (resultado = 0)
+                continue  ; scroll aún en curso
+            ; Scroll terminado: si encontró imagen post-scroll, actuar
+            if (resultado = 2) {
+                ; Re-buscar para obtener las coordenadas (ProcesarScroll ya confirmó)
+                hwndS := Inst_Hwnd[i]
+                imgS := Inst_ScrollPostImg[i] ? Inst_ScrollPostImg[i] : ""
+                paso := Inst_Paso[i]
+                if (paso = 1 || paso = 8) {
+                    exp := Inst_Exp[i]
+                    bat := Inst_Bat[i]
+                    imgBuscar := BatImg[exp, bat]
+                    foundX := 0
+                    foundY := 0
+                    if (BuscarImagenEnVentana(hwndS, imgBuscar, foundX, foundY)) {
+                        nomBat := BatNom[exp, bat]
+                        LogI(i, "P" . paso . ": '" . nomBat . "' encontrado (post-scroll)")
+                        HacerClicEnVentana(hwndS, foundX, foundY)
+                        Inst_Ataques[i] := Inst_Ataques[i] + 1
+                        Inst_ErrCon[i] := 0
+                        if (paso = 1)
+                            Inst_P1Int[i] := 0
+                        else
+                            Inst_P8Int[i] := 0
+                        Inst_Paso[i] := 2
+                        Inst_SkipTick[i] := 2
+                        Inst_LastExito[i] := A_TickCount
+                    }
+                }
+                continue
+            }
+            ; resultado = 1 o -1: scroll terminado, continuar lógica normal en siguiente tick
             continue
         }
 
@@ -1572,29 +1811,15 @@ ProcesarInstancia(i) {
             return
         }
 
-        ; Cada 10 intentos, volver arriba con scroll inverso grande
+        ; Cada 10 intentos, volver arriba con scroll inverso grande (no-bloqueante)
         if (Mod(Inst_P8Int[i], 10) = 0) {
             LogI(i, "P8: Scroll inverso para volver arriba (" . Inst_P8Int[i] . ")")
-            Loop, 5
-                HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2)
-            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop) + 3
+            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2, 5)
         } else {
-            ; Scroll + re-buscar para no saltarse la imagen
-            HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
-            Sleep, 300
-            if (BuscarImagenEnVentana(hwnd, imgBat, foundX, foundY)) {
-                LogI(i, "P8: '" . nomBat . "' encontrado (post-scroll)")
-                HacerClicEnVentana(hwnd, foundX, foundY)
-                Inst_Ataques[i] := Inst_Ataques[i] + 1
-                Inst_ErrCon[i] := 0
-                Inst_P8Int[i] := 0
-                Inst_Paso[i] := 2
-                Inst_SkipTick[i] := 2
-                return
-            }
+            ; Scroll normal con búsqueda post-scroll (no-bloqueante)
             if (Mod(Inst_P8Int[i], 5) = 0)
                 LogI(i, "P8: '" . nomBat . "' no encontrado. Scroll... (" . Inst_P8Int[i] . ")")
-            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
+            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad, 1, imgBat)
         }
 
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
@@ -1658,17 +1883,14 @@ ProcesarInstancia(i) {
             return
         }
 
-        ; Cada 10 intentos, volver arriba con scroll inverso grande
+        ; Cada 10 intentos, volver arriba con scroll inverso grande (no-bloqueante)
         if (Mod(Inst_P10Int[i], 10) = 0) {
             LogI(i, "P10: Scroll inverso para volver arriba (" . Inst_P10Int[i] . ")")
-            Loop, 5
-                HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2)
-            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop) + 3
+            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2, 5)
         } else {
             if (Mod(Inst_P10Int[i], 5) = 0)
                 LogI(i, "P10: 'Expansiones' no encontrado. Scroll... (" . Inst_P10Int[i] . ")")
-            HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
-            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
+            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
         }
 
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
@@ -1714,17 +1936,14 @@ ProcesarInstancia(i) {
             return
         }
 
-        ; Cada 10 intentos, volver arriba con scroll inverso grande
+        ; Cada 10 intentos, volver arriba con scroll inverso grande (no-bloqueante)
         if (Mod(Inst_P11Int[i], 10) = 0) {
             LogI(i, "P11: Scroll inverso para volver arriba (" . Inst_P11Int[i] . ")")
-            Loop, 5
-                HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2)
-            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop) + 3
+            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2, 5)
         } else {
             if (Mod(Inst_P11Int[i], 5) = 0)
                 LogI(i, "P11: '" . nombreExp . "' no encontrado. Scroll... (" . Inst_P11Int[i] . ")")
-            HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
-            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
+            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
         }
 
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
@@ -1769,31 +1988,15 @@ ProcesarInstancia(i) {
             return
         }
 
-        ; Cada 10 intentos, volver arriba con scroll inverso grande
+        ; Cada 10 intentos, volver arriba con scroll inverso grande (no-bloqueante)
         if (Mod(Inst_P1Int[i], 10) = 0) {
             LogI(i, "P1: Scroll inverso para volver arriba (" . Inst_P1Int[i] . ")")
-            Loop, 5
-                HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2)
-            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop) + 3
+            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2, 5)
         } else {
-            ; Scroll + re-buscar: hacer scroll pequeño y buscar de nuevo
-            ; para no saltarse la imagen entre posiciones de scroll
-            HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
-            Sleep, 300
-            ; Segunda búsqueda tras el scroll
-            if (BuscarImagenEnVentana(hwnd, imgBat1, foundX, foundY)) {
-                LogI(i, "P1: '" . nomBat1 . "' encontrado (post-scroll)")
-                HacerClicEnVentana(hwnd, foundX, foundY)
-                Inst_Ataques[i] := Inst_Ataques[i] + 1
-                Inst_ErrCon[i] := 0
-                Inst_P1Int[i] := 0
-                Inst_Paso[i] := 2
-                Inst_SkipTick[i] := 2
-                return
-            }
+            ; Scroll normal con búsqueda post-scroll (no-bloqueante)
             if (Mod(Inst_P1Int[i], 5) = 0)
                 LogI(i, "P1: '" . nomBat1 . "' no encontrado. Scroll... (" . Inst_P1Int[i] . ")")
-            Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
+            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad, 1, imgBat1)
         }
 
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
@@ -1826,9 +2029,8 @@ ProcesarInstancia(i) {
     if (BuscarImagenEnVentana(hwnd, imgActual, foundX, foundY)) {
         imagenEncontrada := true
     } else if (ScrollActivo && (ScrollEnPaso = 0 || ScrollEnPaso = paso)) {
-        ; No encontrada: hacer un scroll y reintentar en el siguiente tick
-        HacerScrollEnVentana(hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
-        Inst_SkipTick[i] := Ceil(ScrollDelay / IntervaloLoop)
+        ; No encontrada: scroll no-bloqueante y reintentar en el siguiente tick
+        IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
     }
 
     if (imagenEncontrada) {
