@@ -2272,11 +2272,31 @@ ProcesarInstancia(i) {
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         Inst_Errores[i] := Inst_Errores[i] + 1
         if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "RECUPERACION: Atascado P8")
+            LogI(i, "P8: No encontró batalla. Avanzando a siguiente...")
             Inst_P8Int[i] := 0
             Inst_ErrCon[i] := 0
-            Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
-            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 8)
+            ; En vez de recuperación, saltar esta batalla y probar la siguiente
+            Inst_Bat[i] := Inst_Bat[i] + 1
+            maxBat2 := BatCnt[Inst_Exp[i]]
+            if (Inst_Bat[i] > maxBat2) {
+                ; Todas las batallas de esta expansión agotadas, ir a cambiar expansión
+                Inst_Exp[i] := Inst_Exp[i] + 1
+                if (Inst_Exp[i] > TotalExpansiones)
+                    Inst_Exp[i] := 1
+                revisadas2 := 0
+                while (BatCnt[Inst_Exp[i]] = 0 && revisadas2 < TotalExpansiones) {
+                    Inst_Exp[i] := Inst_Exp[i] + 1
+                    if (Inst_Exp[i] > TotalExpansiones)
+                        Inst_Exp[i] := 1
+                    revisadas2++
+                }
+                Inst_Bat[i] := 1
+                Inst_Paso[i] := 10
+                LogI(i, ">>> Exp agotada. Ir a P10: CambiarExpansion (Exp " . Inst_Exp[i] . ")")
+            } else {
+                LogI(i, ">>> Saltando a batalla " . Inst_Bat[i] . " de Exp " . Inst_Exp[i])
+                ; Quedarse en P8 para buscar la nueva batalla
+            }
         }
         return
     }
@@ -2291,8 +2311,10 @@ ProcesarInstancia(i) {
             LogI(i, "P9: X encontrado. Clic...")
             HacerClicEnVentana(hwnd, foundX, foundY, i)
             Inst_ErrCon[i] := 0
-            Inst_Paso[i] := 1
+            ; Después de derrota, avanzar a siguiente batalla (P8) en vez de repetir la misma
+            Inst_Paso[i] := 8
             Inst_SkipTick[i] := 2
+            LogI(i, ">>> Post-derrota: Ir a P8 (siguiente batalla)")
             return
         }
 
@@ -2343,11 +2365,12 @@ ProcesarInstancia(i) {
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         Inst_Errores[i] := Inst_Errores[i] + 1
         if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "RECUPERACION: Atascado P10")
+            LogI(i, "P10: No encontró 'Expansiones'. Ir a P1 con expansión actual.")
             Inst_P10Int[i] := 0
             Inst_ErrCon[i] := 0
             Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
-            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 10)
+            ; Si no puede abrir el menú de expansiones, intentar jugar con la actual
+            Inst_Paso[i] := 1
         }
         return
     }
@@ -2362,9 +2385,17 @@ ProcesarInstancia(i) {
         imgExp := ExpansionImagenes[exp]
 
         if (imgExp = "" || !ArchivoExiste(imgExp)) {
-            LogI(i, "ERROR: Falta imagen expansión " . exp)
+            LogI(i, "ERROR: Falta imagen expansión " . exp . ". Saltando a siguiente.")
             Inst_P11Int[i] := 0
-            Inst_Paso[i] := 1
+            ; Saltar a la siguiente expansión que tenga imagen
+            Inst_Exp[i] := Inst_Exp[i] + 1
+            if (Inst_Exp[i] > TotalExpansiones)
+                Inst_Exp[i] := 1
+            Inst_Bat[i] := 1
+            ; Si vuelve a la misma, ir a P1 para no hacer loop infinito
+            if (Inst_Exp[i] = exp) {
+                Inst_Paso[i] := 1
+            }
             return
         }
 
@@ -2396,11 +2427,25 @@ ProcesarInstancia(i) {
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         Inst_Errores[i] := Inst_Errores[i] + 1
         if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "RECUPERACION: Atascado P11")
+            LogI(i, "P11: No encontró expansión " . nombreExp . ". Saltando a siguiente expansión.")
             Inst_P11Int[i] := 0
             Inst_ErrCon[i] := 0
             Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
-            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 11)
+            ; Saltar a la siguiente expansión
+            Inst_Exp[i] := Inst_Exp[i] + 1
+            if (Inst_Exp[i] > TotalExpansiones)
+                Inst_Exp[i] := 1
+            revisadas3 := 0
+            while (BatCnt[Inst_Exp[i]] = 0 && revisadas3 < TotalExpansiones) {
+                Inst_Exp[i] := Inst_Exp[i] + 1
+                if (Inst_Exp[i] > TotalExpansiones)
+                    Inst_Exp[i] := 1
+                revisadas3++
+            }
+            Inst_Bat[i] := 1
+            ; Intentar de nuevo desde el menú de expansiones
+            Inst_Paso[i] := 11
+            LogI(i, ">>> Probando Exp " . Inst_Exp[i] . ": " . ExpansionNombres[Inst_Exp[i]])
         }
         return
     }
