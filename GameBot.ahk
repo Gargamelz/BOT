@@ -950,20 +950,24 @@ ADB_Conectar(i) {
     device := "127.0.0.1:" . puerto
     Inst_ADB_Device[i] := device
 
+    ; Archivos temporales únicos por instancia
+    tmpConn := A_Temp . "\adb_conn_" . i . ".txt"
+    tmpSize := A_Temp . "\adb_size_" . i . ".txt"
+
     ; Conectar
     cmd := """" . ADB_Ruta . """ connect " . device
-    RunWait, %ComSpec% /c "%cmd% > ""%A_Temp%\adb_conn.txt"" 2>&1",, Hide
-    FileRead, salida, %A_Temp%\adb_conn.txt
-    FileDelete, %A_Temp%\adb_conn.txt
+    RunWait, %ComSpec% /c "%cmd% > ""%tmpConn%"" 2>&1",, Hide
+    FileRead, salida, %tmpConn%
+    FileDelete, %tmpConn%
 
     if (InStr(salida, "connected") || InStr(salida, "already")) {
         Inst_ADB_Conectado[i] := true
 
         ; Obtener resolución interna del Android
         cmdSize := """" . ADB_Ruta . """ -s " . device . " shell wm size"
-        RunWait, %ComSpec% /c "%cmdSize% > ""%A_Temp%\adb_size.txt"" 2>&1",, Hide
-        FileRead, salidaSize, %A_Temp%\adb_size.txt
-        FileDelete, %A_Temp%\adb_size.txt
+        RunWait, %ComSpec% /c "%cmdSize% > ""%tmpSize%"" 2>&1",, Hide
+        FileRead, salidaSize, %tmpSize%
+        FileDelete, %tmpSize%
         ; Formato: "Physical size: 960x540"
         if (RegExMatch(salidaSize, "(\d+)x(\d+)", m)) {
             Inst_ADB_Res[i] := {w: m1 + 0, h: m2 + 0}
@@ -972,6 +976,8 @@ ADB_Conectar(i) {
             Inst_ADB_Res[i] := {w: 0, h: 0}
             LogI(i, "ADB conectado: " . device . " (resolución desconocida)")
         }
+        ; Abrir shell persistente para comandos rápidos
+        ADB_AbrirShell(i)
         return true
     }
 
@@ -981,15 +987,61 @@ ADB_Conectar(i) {
 }
 
 ; ============================================================================
-; FUNCIÓN: Ejecutar comando ADB (no-bloqueante con Run)
+; FUNCIÓN: Ejecutar comando ADB (shell persistente por instancia)
+; Mantiene una sesión "adb shell" abierta para evitar crear procesos nuevos
 ; ============================================================================
-ADB_Cmd(i, comando) {
-    global ADB_Ruta
+global Inst_ADB_Shell := {}     ; Objeto WScript.Shell.Exec por instancia
+global Inst_ADB_ShellOK := {}   ; true si la shell persistente está activa
+
+ADB_AbrirShell(i) {
+    global
     device := Inst_ADB_Device[i]
     if (device = "" || ADB_Ruta = "")
-        return
-    cmd := """" . ADB_Ruta . """ -s " . device . " shell " . comando
-    Run, %ComSpec% /c "%cmd%",, Hide
+        return false
+
+    try {
+        wsh := ComObjCreate("WScript.Shell")
+        cmd := """" . ADB_Ruta . """ -s " . device . " shell"
+        proc := wsh.Exec(cmd)
+        Inst_ADB_Shell[i] := proc
+        Inst_ADB_ShellOK[i] := true
+        Sleep, 200  ; Dar tiempo a que la shell inicie
+        return true
+    } catch e {
+        LogI(i, "ADB shell error: " . e.Message)
+        Inst_ADB_ShellOK[i] := false
+        return false
+    }
+}
+
+ADB_Cmd(i, comando) {
+    global
+    ; Verificar que la shell persistente está activa
+    if (!Inst_ADB_ShellOK[i]) {
+        if (!ADB_AbrirShell(i))
+            return
+    }
+
+    try {
+        proc := Inst_ADB_Shell[i]
+        ; Verificar que el proceso sigue vivo
+        if (proc.Status != 0) {
+            ; Shell cerrada, reabrir
+            Inst_ADB_ShellOK[i] := false
+            if (!ADB_AbrirShell(i))
+                return
+            proc := Inst_ADB_Shell[i]
+        }
+        proc.StdIn.WriteLine(comando)
+    } catch e {
+        ; Shell muerta, reintentar una vez
+        Inst_ADB_ShellOK[i] := false
+        if (ADB_AbrirShell(i)) {
+            try {
+                Inst_ADB_Shell[i].StdIn.WriteLine(comando)
+            }
+        }
+    }
 }
 
 ; ============================================================================
@@ -1080,7 +1132,7 @@ IniciarScroll(i, hwnd, relX, relY, cantidad, repeticiones := 1, imgPostScroll :=
     Inst_ScrollRelY[i] := relY
     Inst_ScrollPostImg[i] := imgPostScroll
 
-    ; Si ADB está habilitado, usar ADB swipe (instantáneo, no-bloqueante)
+    ; Si ADB está habilitado, usar ADB swipe
     if (ADB_Habilitado && Inst_ADB_Conectado[i]) {
         distancia := cantidad * 40
         yInicio := relY + (distancia // 2)
@@ -1089,16 +1141,23 @@ IniciarScroll(i, hwnd, relX, relY, cantidad, repeticiones := 1, imgPostScroll :=
             yInicio := 10
         if (yFin < 10)
             yFin := 10
-        duracion := 300
 
-        Loop, %repeticiones%
-            ADB_Swipe(i, relX, yInicio, yFin, duracion)
+        ; Ejecutar 1 solo swipe ahora
+        ADB_Swipe(i, relX, yInicio, yFin, 400)
 
-        ; Marcar scroll como activo solo para la fase de búsqueda post-scroll
-        if (imgPostScroll != "") {
+        ; Si hay repeticiones, usar la máquina de estados para las restantes
+        if (repeticiones > 1) {
             Inst_ScrollActivo[i] := true
-            Inst_ScrollFase[i] := 3  ; ir directo a fase búsqueda
+            Inst_ScrollFase[i] := 4  ; fase especial: ADB multi-swipe
             Inst_ScrollHwndTarget[i] := hwnd
+            Inst_ScrollRepetir[i] := repeticiones - 1  ; ya hicimos 1
+            Inst_SkipTick[i] := 1  ; esperar 1 tick entre swipes
+        } else if (imgPostScroll != "") {
+            ; Solo 1 swipe + búsqueda post-scroll
+            Inst_ScrollActivo[i] := true
+            Inst_ScrollFase[i] := 3  ; ir a fase búsqueda
+            Inst_ScrollHwndTarget[i] := hwnd
+            Inst_SkipTick[i] := 1  ; esperar que el swipe termine
         }
         return
     }
@@ -1259,6 +1318,39 @@ ProcesarScroll(i) {
         }
         Inst_ScrollPostImg[i] := ""
         return -1  ; no encontrada
+    }
+
+    ; FASE 4: ADB multi-swipe (repeticiones restantes, 1 por tick)
+    if (fase = 4) {
+        ; Ejecutar 1 swipe ADB
+        cantidad := Inst_ScrollCantidad[i]
+        relX := Inst_ScrollRelX[i]
+        relY := Inst_ScrollRelY[i]
+        distancia := cantidad * 40
+        yInicio := relY + (distancia // 2)
+        yFin := relY - (distancia // 2)
+        if (yInicio < 10)
+            yInicio := 10
+        if (yFin < 10)
+            yFin := 10
+        ADB_Swipe(i, relX, yInicio, yFin, 400)
+
+        Inst_ScrollRepetir[i] := Inst_ScrollRepetir[i] - 1
+        if (Inst_ScrollRepetir[i] <= 0) {
+            ; Todas las repeticiones hechas
+            imgPostScroll := Inst_ScrollPostImg[i]
+            if (imgPostScroll != "") {
+                Inst_ScrollFase[i] := 3  ; buscar imagen
+                Inst_SkipTick[i] := 1
+            } else {
+                Inst_ScrollActivo[i] := false
+                Inst_ScrollFase[i] := 0
+                return 1
+            }
+        } else {
+            Inst_SkipTick[i] := 1  ; esperar 1 tick antes del siguiente swipe
+        }
+        return 0
     }
 
     ; Estado inválido - resetear
@@ -1612,6 +1704,13 @@ DetenerInstancia(i) {
     Inst_ScrollActivo[i] := false
     Inst_ScrollFase[i] := 0
     Inst_RecupFase[i] := 0
+    ; Cerrar shell ADB si existe
+    if (Inst_ADB_ShellOK[i]) {
+        try {
+            Inst_ADB_Shell[i].StdIn.WriteLine("exit")
+        }
+        Inst_ADB_ShellOK[i] := false
+    }
     Inst_Estado[i] := "IDLE"
     LogI(i, "=== DETENIDO ===")
     ActualizarEstadoInst(i)
