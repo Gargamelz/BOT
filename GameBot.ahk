@@ -793,9 +793,26 @@ BuscarImagenEnVentana(hwnd, ByRef rutaImagen, ByRef foundX, ByRef foundY) {
     if (ErrorLevel = 0) {
         ObtenerDimensionesImagenCached(rutaImagen, imgW, imgH)
         if (imgW > 0 && imgH > 0) {
-            foundX := foundX + (imgW // 2)
-            foundY := foundY + (imgH // 2)
+            ; Calcular centro de la imagen encontrada
+            centroX := foundX + (imgW // 2)
+            centroY := foundY + (imgH // 2)
+        } else {
+            centroX := foundX
+            centroY := foundY
         }
+
+        ; Validar que el pixel encontrado pertenece a ESTA ventana
+        ; y no a otra ventana que se superpone encima
+        pt := (centroY << 32) | (centroX & 0xFFFFFFFF)
+        hwndEnPunto := DllCall("WindowFromPoint", "Int64", pt, "Ptr")
+        hwndRaiz := DllCall("GetAncestor", "Ptr", hwndEnPunto, "UInt", 2, "Ptr")  ; GA_ROOT=2
+        if (hwndRaiz + 0 != hwnd + 0) {
+            ; La imagen encontrada pertenece a otra ventana superpuesta
+            return false
+        }
+
+        foundX := centroX
+        foundY := centroY
         return true
     }
     return false
