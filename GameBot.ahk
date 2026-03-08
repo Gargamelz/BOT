@@ -48,6 +48,10 @@ global MaxNuevaBatallaIntentos := 10
 global WatchdogSegundos := 300
 global UmbralScanPopups := 15
 
+; ADB - Configuración global
+global ADB_Ruta := ""              ; Ruta al adb.exe (auto-detectada o manual)
+global ADB_Habilitado := false     ; true = usar ADB para clicks/swipes
+
 ; Imágenes fijas (compartidas, no cambian por instancia)
 global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
 global IMG_DERROTA  := CarpetaImagenes . "\pantalla_derrota.bmp"
@@ -149,6 +153,12 @@ global Inst_Cooldown := {}
 global Inst_SkipTick := {}
 global Inst_LastExito := {}
 global Inst_RecuperacionTotal := {}
+
+; ADB por instancia
+global Inst_ADB_Puerto := {}       ; Puerto ADB de cada instancia (16384, 16416, etc.)
+global Inst_ADB_Device := {}       ; Device string "127.0.0.1:PUERTO"
+global Inst_ADB_Conectado := {}    ; true/false - conexión ADB verificada
+global Inst_ADB_Res := {}          ; Resolución interna Android {w:, h:} para mapeo de coordenadas
 
 ; Estado de recuperación incremental por instancia
 global Inst_RecupFase := {}         ; 0=no en recuperación, 1-6=escaneando popup N
@@ -466,6 +476,14 @@ GuardarConfig() {
     IniWrite, %tmpScrollDelay%, %ArchivoConfig%, Scroll, ScrollDelay
     IniWrite, %tmpScrollEnPaso%, %ArchivoConfig%, Scroll, ScrollEnPaso
 
+    ; Sección ADB
+    GuiControlGet, tmpADB, Main:, ChkADB
+    GuiControlGet, tmpADBRuta, Main:, EditADBRuta
+    GuiControlGet, tmpADBPuertos, Main:, EditADBPuertos
+    IniWrite, %tmpADB%, %ArchivoConfig%, ADB, Habilitado
+    IniWrite, %tmpADBRuta%, %ArchivoConfig%, ADB, Ruta
+    IniWrite, %tmpADBPuertos%, %ArchivoConfig%, ADB, Puertos
+
     ; Secciones por instancia
     Loop, %MAX_INST% {
         i := A_Index
@@ -484,6 +502,7 @@ CargarConfig() {
     global VentanaAncho, VentanaAlto, AutoAjustar
     global ScrollActivo, ScrollRelX, ScrollRelY, ScrollCantidad, ScrollDelay, ScrollEnPaso
     global MAX_INST, Inst_Titulo, Inst_Exp, Inst_Bat
+    global ADB_Habilitado, ADB_Ruta, Inst_ADB_Puerto
 
     if !FileExist(ArchivoConfig)
         return
@@ -516,6 +535,23 @@ CargarConfig() {
     ScrollDelay := tmp + 0
     IniRead, tmp, %ArchivoConfig%, Scroll, ScrollEnPaso, %ScrollEnPaso%
     ScrollEnPaso := tmp + 0
+
+    ; ADB
+    IniRead, tmp, %ArchivoConfig%, ADB, Habilitado, 0
+    ADB_Habilitado := tmp + 0
+    IniRead, tmp, %ArchivoConfig%, ADB, Ruta, %ADB_Ruta%
+    if (tmp != "ERROR" && tmp != "")
+        ADB_Ruta := tmp
+    IniRead, tmp, %ArchivoConfig%, ADB, Puertos,
+    if (tmp != "ERROR" && tmp != "") {
+        StringSplit, pArr, tmp, `,
+        Loop, %MAX_INST% {
+            if (A_Index <= pArr0) {
+                p := RegExReplace(pArr%A_Index%, "[^0-9]", "") + 0
+                Inst_ADB_Puerto[A_Index] := p
+            }
+        }
+    }
 
     ; Cargar instancias
     Loop, %MAX_INST% {
@@ -657,8 +693,33 @@ CrearGUI() {
     Gui, Main:Add, Button, x25 y%ySR2% w180 h22 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
     Gui, Main:Add, Button, x215 y%ySR2% w180 h22 gProbarScroll, Probar Swipe
 
+    ; --- SECCIÓN: ADB ---
+    yADB := 450
+    Gui, Main:Font, s10 cWhite Bold
+    Gui, Main:Add, GroupBox, x10 y%yADB% w660 h55, ADB (CLICKS DIRECTOS POR INSTANCIA)
+
+    yAR := yADB + 22
+    Gui, Main:Font, s9 cSilver Normal
+    chkADBVal := ADB_Habilitado ? "Checked" : ""
+    Gui, Main:Add, CheckBox, x25 y%yAR% vChkADB %chkADBVal% cWhite gToggleADB, ADB
+    Gui, Main:Add, Text, x80 y%yAR%, Ruta:
+    Gui, Main:Add, Edit, x110 y%yAR% w310 h22 vEditADBRuta, %ADB_Ruta%
+    Gui, Main:Add, Button, x425 y%yAR% w80 h22 gDetectarADBBtn, Detectar
+    Gui, Main:Add, Text, x515 y%yAR%, Puertos:
+    ; Puertos de cada instancia (separados por coma)
+    puertosStr := ""
+    Loop, %MAX_INST% {
+        p := Inst_ADB_Puerto[A_Index]
+        if (p = "" || p = 0)
+            p := 16384 + (A_Index - 1) * 32
+        if (A_Index > 1)
+            puertosStr .= ","
+        puertosStr .= p
+    }
+    Gui, Main:Add, Edit, x568 y%yAR% w95 h22 vEditADBPuertos, %puertosStr%
+
     ; --- SECCIÓN: ESTADO (5 líneas) ---
-    yEst := 450
+    yEst := 515
     Gui, Main:Font, s10 cWhite Bold
     Gui, Main:Add, GroupBox, x10 y%yEst% w660 h130, ESTADO
 
@@ -670,7 +731,7 @@ CrearGUI() {
     }
 
     ; --- SECCIÓN: LOG ---
-    yLog := 590
+    yLog := 655
     Gui, Main:Font, s10 cWhite Bold
     Gui, Main:Add, GroupBox, x10 y%yLog% w660 h200, LOG
 
@@ -679,7 +740,7 @@ CrearGUI() {
     Gui, Main:Add, Edit, x25 y%yLogE% w635 h168 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
 
     ; --- Mostrar ventana ---
-    Gui, Main:Show, w680 h800, Game Bot - Multi-Instancia (5)
+    Gui, Main:Show, w680 h870, Game Bot - Multi-Instancia (5)
     Log("=== Game Bot Multi-Instancia iniciado ===")
     Log("F12: Iniciar/Pausar todos | F11: Detener todos | F10: Reload")
 }
@@ -839,18 +900,165 @@ BuscarImagenEnVentana(hwnd, ByRef rutaImagen, ByRef foundX, ByRef foundY) {
 }
 
 ; ============================================================================
-; FUNCIÓN: Hacer clic en ventana por HWND
+; FUNCIÓN: Auto-detectar ruta de ADB
 ; ============================================================================
-HacerClicEnVentana(hwnd, screenX, screenY) {
+DetectarADB() {
+    global ADB_Ruta
+
+    ; Intentar rutas comunes de MuMu Player 12
+    rutas := []
+    rutas.Push("C:\Program Files\Netease\MuMuPlayer-12.0\shell\adb.exe")
+    rutas.Push("D:\Program Files\Netease\MuMuPlayer-12.0\shell\adb.exe")
+    rutas.Push("C:\Program Files\Netease\MuMu Player 12\shell\adb.exe")
+    rutas.Push("D:\Program Files\Netease\MuMu Player 12\shell\adb.exe")
+    ; MuMu Player Pro
+    rutas.Push("C:\Program Files\Netease\MuMuPlayerPro-3.0\shell\adb.exe")
+    rutas.Push("D:\Program Files\Netease\MuMuPlayerPro-3.0\shell\adb.exe")
+    ; MuMu antiguo
+    rutas.Push("C:\Program Files\MuMu\emulator\nemu\vmonitor\bin\adb_server.exe")
+    rutas.Push("D:\Program Files\MuMu\emulator\nemu\vmonitor\bin\adb_server.exe")
+    ; ADB genérico en PATH
+    rutas.Push("adb.exe")
+
+    for _, ruta in rutas {
+        if (FileExist(ruta)) {
+            ADB_Ruta := ruta
+            return true
+        }
+    }
+    ; Intentar adb en PATH del sistema
+    RunWait, %ComSpec% /c "where adb.exe > ""%A_Temp%\adb_check.txt"" 2>NUL",, Hide
+    FileRead, adbPath, %A_Temp%\adb_check.txt
+    FileDelete, %A_Temp%\adb_check.txt
+    adbPath := Trim(adbPath, " `t`r`n")
+    if (adbPath != "" && FileExist(adbPath)) {
+        ADB_Ruta := adbPath
+        return true
+    }
+    return false
+}
+
+; ============================================================================
+; FUNCIÓN: Conectar ADB a una instancia
+; ============================================================================
+ADB_Conectar(i) {
+    global
+    puerto := Inst_ADB_Puerto[i]
+    if (puerto = 0 || puerto = "")
+        return false
+
+    device := "127.0.0.1:" . puerto
+    Inst_ADB_Device[i] := device
+
+    ; Conectar
+    cmd := """" . ADB_Ruta . """ connect " . device
+    RunWait, %ComSpec% /c "%cmd% > ""%A_Temp%\adb_conn.txt"" 2>&1",, Hide
+    FileRead, salida, %A_Temp%\adb_conn.txt
+    FileDelete, %A_Temp%\adb_conn.txt
+
+    if (InStr(salida, "connected") || InStr(salida, "already")) {
+        Inst_ADB_Conectado[i] := true
+
+        ; Obtener resolución interna del Android
+        cmdSize := """" . ADB_Ruta . """ -s " . device . " shell wm size"
+        RunWait, %ComSpec% /c "%cmdSize% > ""%A_Temp%\adb_size.txt"" 2>&1",, Hide
+        FileRead, salidaSize, %A_Temp%\adb_size.txt
+        FileDelete, %A_Temp%\adb_size.txt
+        ; Formato: "Physical size: 960x540"
+        if (RegExMatch(salidaSize, "(\d+)x(\d+)", m)) {
+            Inst_ADB_Res[i] := {w: m1 + 0, h: m2 + 0}
+            LogI(i, "ADB conectado: " . device . " (" . m1 . "x" . m2 . ")")
+        } else {
+            Inst_ADB_Res[i] := {w: 0, h: 0}
+            LogI(i, "ADB conectado: " . device . " (resolución desconocida)")
+        }
+        return true
+    }
+
+    Inst_ADB_Conectado[i] := false
+    LogI(i, "ADB error conectando a " . device . ": " . salida)
+    return false
+}
+
+; ============================================================================
+; FUNCIÓN: Ejecutar comando ADB (no-bloqueante con Run)
+; ============================================================================
+ADB_Cmd(i, comando) {
+    global ADB_Ruta
+    device := Inst_ADB_Device[i]
+    if (device = "" || ADB_Ruta = "")
+        return
+    cmd := """" . ADB_Ruta . """ -s " . device . " shell " . comando
+    Run, %ComSpec% /c "%cmd%",, Hide
+}
+
+; ============================================================================
+; FUNCIÓN: Tap ADB (coordenadas relativas a la ventana → Android)
+; ============================================================================
+ADB_Tap(i, relX, relY) {
+    global
+    res := Inst_ADB_Res[i]
+    hwnd := Inst_Hwnd[i]
+
+    ; Obtener tamaño de ventana para mapear coordenadas
+    WinGetPos,,, ww, wh, ahk_id %hwnd%
+    if (ww > 0 && wh > 0 && res.w > 0 && res.h > 0) {
+        ; Mapear coordenadas de ventana a resolución Android
+        adbX := Round(relX * res.w / ww)
+        adbY := Round(relY * res.h / wh)
+    } else {
+        ; Sin resolución conocida, usar coordenadas directas
+        adbX := relX
+        adbY := relY
+    }
+    ADB_Cmd(i, "input tap " . adbX . " " . adbY)
+}
+
+; ============================================================================
+; FUNCIÓN: Swipe ADB (no-bloqueante)
+; ============================================================================
+ADB_Swipe(i, relX, relYInicio, relYFin, duracionMs := 500) {
+    global
+    res := Inst_ADB_Res[i]
+    hwnd := Inst_Hwnd[i]
+
+    WinGetPos,,, ww, wh, ahk_id %hwnd%
+    if (ww > 0 && wh > 0 && res.w > 0 && res.h > 0) {
+        adbX := Round(relX * res.w / ww)
+        adbYI := Round(relYInicio * res.h / wh)
+        adbYF := Round(relYFin * res.h / wh)
+    } else {
+        adbX := relX
+        adbYI := relYInicio
+        adbYF := relYFin
+    }
+    ADB_Cmd(i, "input swipe " . adbX . " " . adbYI . " " . adbX . " " . adbYF . " " . duracionMs)
+}
+
+; ============================================================================
+; FUNCIÓN: Hacer clic en ventana por HWND (con soporte ADB)
+; ============================================================================
+HacerClicEnVentana(hwnd, screenX, screenY, instancia := 0) {
+    global ADB_Habilitado
     WinGetPos, wx, wy,,, ahk_id %hwnd%
     relX := screenX - wx
     relY := screenY - wy
 
-    ; Usar PostMessage (asíncrono) para no bloquear el hilo
-    ; Enviar WM_LBUTTONDOWN + WM_LBUTTONUP directamente
-    lParam := (relY << 16) | (relX & 0xFFFF)
-    PostMessage, 0x201, 0x0001, %lParam%,, ahk_id %hwnd%   ; WM_LBUTTONDOWN
-    PostMessage, 0x202, 0x0000, %lParam%,, ahk_id %hwnd%   ; WM_LBUTTONUP
+    ; Si ADB está habilitado y la instancia está conectada, usar ADB
+    if (ADB_Habilitado && instancia > 0 && Inst_ADB_Conectado[instancia]) {
+        ADB_Tap(instancia, relX, relY)
+        return
+    }
+
+    ; Fallback: ControlClick (funciona con MuMu sin ADB)
+    ControlClick, x%relX% y%relY%, ahk_id %hwnd%,, Left, 1, NA
+
+    if (ErrorLevel) {
+        lParam := (relY << 16) | (relX & 0xFFFF)
+        PostMessage, 0x201, 0x0001, %lParam%,, ahk_id %hwnd%
+        Sleep, 50
+        PostMessage, 0x202, 0x0000, %lParam%,, ahk_id %hwnd%
+    }
 }
 
 ; ============================================================================
@@ -872,7 +1080,30 @@ IniciarScroll(i, hwnd, relX, relY, cantidad, repeticiones := 1, imgPostScroll :=
     Inst_ScrollRelY[i] := relY
     Inst_ScrollPostImg[i] := imgPostScroll
 
-    ; Iniciar la primera repetición
+    ; Si ADB está habilitado, usar ADB swipe (instantáneo, no-bloqueante)
+    if (ADB_Habilitado && Inst_ADB_Conectado[i]) {
+        distancia := cantidad * 40
+        yInicio := relY + (distancia // 2)
+        yFin := relY - (distancia // 2)
+        if (yInicio < 10)
+            yInicio := 10
+        if (yFin < 10)
+            yFin := 10
+        duracion := 300
+
+        Loop, %repeticiones%
+            ADB_Swipe(i, relX, yInicio, yFin, duracion)
+
+        ; Marcar scroll como activo solo para la fase de búsqueda post-scroll
+        if (imgPostScroll != "") {
+            Inst_ScrollActivo[i] := true
+            Inst_ScrollFase[i] := 3  ; ir directo a fase búsqueda
+            Inst_ScrollHwndTarget[i] := hwnd
+        }
+        return
+    }
+
+    ; Fallback: scroll por mensajes Windows
     _IniciarScrollUnico(i, hwnd, relX, relY, cantidad)
 }
 
@@ -1147,6 +1378,14 @@ IniciarTodos:
         ActualizarEstadoInst(i)
     }
 
+    ; Conectar ADB si está habilitado
+    if (ADB_Habilitado && algunoIniciado) {
+        Loop, %MAX_INST% {
+            if (Inst_Activo[A_Index] && !Inst_ADB_Conectado[A_Index])
+                ADB_Conectar(A_Index)
+        }
+    }
+
     if (algunoIniciado) {
         SetTimer, LoopPrincipal, %IntervaloLoop%
         Log(">>> Timer principal activo cada " . IntervaloLoop . "ms")
@@ -1338,6 +1577,11 @@ IniciarInstancia(i) {
     LeerDDLsInstancia(i)
     AutoAjustarVentana(i)
     ResetInstancia(i)
+
+    ; Conectar ADB si está habilitado
+    if (ADB_Habilitado && !Inst_ADB_Conectado[i])
+        ADB_Conectar(i)
+
     LogI(i, "=== INICIADO === Exp:" . Inst_Exp[i] . " Bat:" . Inst_Bat[i])
     ActualizarEstadoInst(i)
 
@@ -1495,7 +1739,7 @@ LoopPrincipal:
                     if (BuscarImagenEnVentana(hwndS, imgBuscar, foundX, foundY)) {
                         nomBat := BatNom[exp, bat]
                         LogI(i, "P" . paso . ": '" . nomBat . "' encontrado (post-scroll)")
-                        HacerClicEnVentana(hwndS, foundX, foundY)
+                        HacerClicEnVentana(hwndS, foundX, foundY, i)
                         Inst_Ataques[i] := Inst_Ataques[i] + 1
                         Inst_ErrCon[i] := 0
                         if (paso = 1)
@@ -1586,7 +1830,7 @@ ProcesarRecuperacion(i) {
     if (fase = 1) {
         if (BuscarImagenEnVentana(hwnd, IMG_OK, foundX, foundY)) {
             LogI(i, "RECUP[P" . pasoOrigen . "]: Popup OK detectado. Clic + ir a P8")
-            HacerClicEnVentana(hwnd, foundX, foundY)
+            HacerClicEnVentana(hwnd, foundX, foundY, i)
             Inst_SkipTick[i] := 2
             Inst_Paso[i] := 8
             Inst_RecupFase[i] := 0
@@ -1599,7 +1843,7 @@ ProcesarRecuperacion(i) {
     if (fase = 2) {
         if (BuscarImagenEnVentana(hwnd, IMG_EQUIS, foundX, foundY)) {
             LogI(i, "RECUP[P" . pasoOrigen . "]: Popup X detectado. Clic + ir a P1")
-            HacerClicEnVentana(hwnd, foundX, foundY)
+            HacerClicEnVentana(hwnd, foundX, foundY, i)
             Inst_SkipTick[i] := 2
             Inst_Paso[i] := 1
             Inst_RecupFase[i] := 0
@@ -1612,7 +1856,7 @@ ProcesarRecuperacion(i) {
     if (fase = 3) {
         if (BuscarImagenEnVentana(hwnd, IMG_NEXT, foundX, foundY)) {
             LogI(i, "RECUP[P" . pasoOrigen . "]: NEXT detectado. Clic + ir a P6")
-            HacerClicEnVentana(hwnd, foundX, foundY)
+            HacerClicEnVentana(hwnd, foundX, foundY, i)
             Inst_SkipTick[i] := 2
             Inst_RutaPN[i] := 6
             Inst_Paso[i] := 6
@@ -1626,7 +1870,7 @@ ProcesarRecuperacion(i) {
     if (fase = 4) {
         if (BuscarImagenEnVentana(hwnd, IMG_TAP, foundX, foundY)) {
             LogI(i, "RECUP[P" . pasoOrigen . "]: TAP detectado. Clic + ir a P5")
-            HacerClicEnVentana(hwnd, foundX, foundY)
+            HacerClicEnVentana(hwnd, foundX, foundY, i)
             Inst_SkipTick[i] := 2
             Inst_TapInt[i] := 0
             Inst_RutaPN[i] := 6
@@ -1720,7 +1964,7 @@ ProcesarInstancia(i) {
         } else {
             if (BuscarImagenEnVentana(hwnd, IMG_VICTORIA, foundX, foundY)) {
                 LogI(i, "VICTORIA en intento " . resInt)
-                HacerClicEnVentana(hwnd, foundX, foundY)
+                HacerClicEnVentana(hwnd, foundX, foundY, i)
                 Inst_ErrCon[i] := 0
                 Inst_Ataques[i] := Inst_Ataques[i] + 1
                 Inst_ResInt[i] := 0
@@ -1764,7 +2008,7 @@ ProcesarInstancia(i) {
         if (Mod(tapInt, 2) = 1) {
             if (BuscarImagenEnVentana(hwnd, IMG_NEXT, foundX, foundY)) {
                 LogI(i, "Next encontrado. Clic...")
-                HacerClicEnVentana(hwnd, foundX, foundY)
+                HacerClicEnVentana(hwnd, foundX, foundY, i)
                 Inst_ErrCon[i] := 0
                 Inst_TapInt[i] := 0
                 Inst_Paso[i] := Inst_RutaPN[i]
@@ -1775,7 +2019,7 @@ ProcesarInstancia(i) {
         } else {
             if (BuscarImagenEnVentana(hwnd, IMG_TAP, foundX, foundY)) {
                 LogI(i, "Tap encontrado. Clic...")
-                HacerClicEnVentana(hwnd, foundX, foundY)
+                HacerClicEnVentana(hwnd, foundX, foundY, i)
                 Inst_SkipTick[i] := 2
                 return
             }
@@ -1876,7 +2120,7 @@ ProcesarInstancia(i) {
 
         if (BuscarImagenEnVentana(hwnd, imgBat, foundX, foundY)) {
             LogI(i, "P8: '" . nomBat . "' encontrado. Clic...")
-            HacerClicEnVentana(hwnd, foundX, foundY)
+            HacerClicEnVentana(hwnd, foundX, foundY, i)
             Inst_Ataques[i] := Inst_Ataques[i] + 1
             Inst_ErrCon[i] := 0
             Inst_P8Int[i] := 0
@@ -1916,7 +2160,7 @@ ProcesarInstancia(i) {
 
         if (BuscarImagenEnVentana(hwnd, IMG_EQUIS, foundX, foundY)) {
             LogI(i, "P9: X encontrado. Clic...")
-            HacerClicEnVentana(hwnd, foundX, foundY)
+            HacerClicEnVentana(hwnd, foundX, foundY, i)
             Inst_ErrCon[i] := 0
             Inst_Paso[i] := 1
             Inst_SkipTick[i] := 2
@@ -1949,7 +2193,7 @@ ProcesarInstancia(i) {
 
         if (BuscarImagenEnVentana(hwnd, IMG_EXPANSIONES, foundX, foundY)) {
             LogI(i, "P10: 'Expansiones' encontrado. Clic...")
-            HacerClicEnVentana(hwnd, foundX, foundY)
+            HacerClicEnVentana(hwnd, foundX, foundY, i)
             Inst_P10Int[i] := 0
             Inst_ErrCon[i] := 0
             Inst_Paso[i] := 11
@@ -2002,7 +2246,7 @@ ProcesarInstancia(i) {
 
         if (BuscarImagenEnVentana(hwnd, imgExp, foundX, foundY)) {
             LogI(i, "P11: '" . nombreExp . "' encontrado. Clic...")
-            HacerClicEnVentana(hwnd, foundX, foundY)
+            HacerClicEnVentana(hwnd, foundX, foundY, i)
             Inst_P11Int[i] := 0
             Inst_ErrCon[i] := 0
             Inst_Paso[i] := 1
@@ -2053,7 +2297,7 @@ ProcesarInstancia(i) {
         ; Buscar imagen antes del scroll
         if (BuscarImagenEnVentana(hwnd, imgBat1, foundX, foundY)) {
             LogI(i, "P1: '" . nomBat1 . "' encontrado")
-            HacerClicEnVentana(hwnd, foundX, foundY)
+            HacerClicEnVentana(hwnd, foundX, foundY, i)
             Inst_Ataques[i] := Inst_Ataques[i] + 1
             Inst_ErrCon[i] := 0
             Inst_P1Int[i] := 0
@@ -2109,7 +2353,7 @@ ProcesarInstancia(i) {
 
     if (imagenEncontrada) {
         LogI(i, "P" . paso . ": '" . nombrePaso . "' encontrado")
-        HacerClicEnVentana(hwnd, foundX, foundY)
+        HacerClicEnVentana(hwnd, foundX, foundY, i)
         Inst_Ataques[i] := Inst_Ataques[i] + 1
         Inst_ErrCon[i] := 0
         Inst_Paso[i] := paso + 1
@@ -2508,6 +2752,58 @@ ProbarScroll:
     Log("Probando swipe en (" . tmpScrollX . ", " . tmpScrollY . ") x" . tmpScrollCant . "...")
     HacerScrollEnVentana(hwndScroll, tmpScrollX, tmpScrollY, tmpScrollCant)
     Log("Swipe de prueba enviado")
+    FlushLog()
+return
+
+; ============================================================================
+; LABELS: ADB
+; ============================================================================
+DetectarADBBtn:
+    if (DetectarADB()) {
+        GuiControl, Main:, EditADBRuta, %ADB_Ruta%
+        Log("ADB detectado: " . ADB_Ruta)
+    } else {
+        Log("ERROR: No se encontró adb.exe. Indica la ruta manualmente.")
+    }
+    FlushLog()
+return
+
+ToggleADB:
+    GuiControlGet, tmpADB, Main:, ChkADB
+    ADB_Habilitado := tmpADB
+    if (ADB_Habilitado) {
+        GuiControlGet, tmpRuta, Main:, EditADBRuta
+        ADB_Ruta := Trim(tmpRuta, " `t`r`n")
+        if (ADB_Ruta = "" || !FileExist(ADB_Ruta)) {
+            if (!DetectarADB()) {
+                Log("ERROR: ADB no encontrado. Desactivando.")
+                ADB_Habilitado := false
+                GuiControl, Main:, ChkADB, 0
+                FlushLog()
+                return
+            }
+            GuiControl, Main:, EditADBRuta, %ADB_Ruta%
+        }
+        ; Parsear puertos
+        GuiControlGet, tmpPuertos, Main:, EditADBPuertos
+        StringSplit, pArr, tmpPuertos, `,
+        Loop, %MAX_INST% {
+            if (A_Index <= pArr0) {
+                p := RegExReplace(pArr%A_Index%, "[^0-9]", "") + 0
+                Inst_ADB_Puerto[A_Index] := p
+            } else {
+                Inst_ADB_Puerto[A_Index] := 16384 + (A_Index - 1) * 32
+            }
+        }
+        ; Conectar todas las instancias activas
+        Loop, %MAX_INST% {
+            if (Inst_Activo[A_Index] || Inst_Hwnd[A_Index])
+                ADB_Conectar(A_Index)
+        }
+        Log("ADB habilitado")
+    } else {
+        Log("ADB deshabilitado - usando ControlClick")
+    }
     FlushLog()
 return
 
