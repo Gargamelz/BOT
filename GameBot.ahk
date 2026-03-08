@@ -1811,9 +1811,12 @@ DetectarVentanaInst(i) {
         ; Solo ventanas visibles (WS_VISIBLE)
         if !(estilo & 0x10000000)
             continue
-        ; Solo ventanas top-level con barra de título (WS_CAPTION = WS_BORDER | WS_DLGFRAME)
-        ; Filtra ventanas hijas/auxiliares de MuMu y otros emuladores
-        if !(estilo & 0x00C00000)
+        ; Solo ventanas top-level (sin parent) y de tamaño razonable
+        hwndParent := DllCall("GetParent", "Ptr", hwnd, "Ptr")
+        if (hwndParent != 0)
+            continue
+        WinGetPos,,, tmpW, tmpH, ahk_id %hwnd%
+        if (tmpW < 200 || tmpH < 200)
             continue
         ; Excluir ventanas ya asignadas a OTRAS instancias
         yaAsignada := false
@@ -1929,8 +1932,12 @@ AutoDetectar:
         WinGet, estilo, Style, ahk_id %hwnd%
         if !(estilo & 0x10000000)
             continue
-        ; Solo ventanas top-level con barra de título (filtra hijas/auxiliares)
-        if !(estilo & 0x00C00000)
+        ; Solo ventanas top-level (sin parent) y de tamaño razonable
+        hwndParent := DllCall("GetParent", "Ptr", hwnd, "Ptr")
+        if (hwndParent != 0)
+            continue
+        WinGetPos,,, tmpW, tmpH, ahk_id %hwnd%
+        if (tmpW < 200 || tmpH < 200)
             continue
 
         esEmulador := false
