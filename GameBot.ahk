@@ -1818,7 +1818,8 @@ DetectarVentanaInst(i) {
         ; Excluir ventanas ya asignadas a OTRAS instancias
         yaAsignada := false
         Loop, %MAX_INST% {
-            if (A_Index != i && Inst_Hwnd[A_Index] = hwnd) {
+            otroHwnd := Inst_Hwnd[A_Index]
+            if (A_Index != i && otroHwnd != 0 && otroHwnd != "" && otroHwnd = hwnd) {
                 yaAsignada := true
                 break
             }
@@ -1885,7 +1886,8 @@ SelVentOK:
 
     ; Verificar que no esté asignada a otra instancia
     Loop, %MAX_INST% {
-        if (A_Index != i && Inst_Hwnd[A_Index] = hwndSel) {
+        otroHwnd := Inst_Hwnd[A_Index]
+        if (A_Index != i && otroHwnd != 0 && otroHwnd != "" && otroHwnd = hwndSel) {
             MsgBox, 48, Aviso, Esta ventana ya está asignada a la instancia #%A_Index%.
             return
         }
@@ -1944,7 +1946,8 @@ AutoDetectar:
         ; Verificar que no esté ya asignada
         yaAsignada := false
         Loop, %MAX_INST% {
-            if (Inst_Hwnd[A_Index] = hwnd) {
+            otroHwnd := Inst_Hwnd[A_Index]
+            if (otroHwnd != 0 && otroHwnd != "" && otroHwnd = hwnd) {
                 yaAsignada := true
                 break
             }
@@ -1955,7 +1958,7 @@ AutoDetectar:
         ; Asignar al primer slot libre
         Loop, %MAX_INST% {
             slot := A_Index
-            if (Inst_Hwnd[slot] = 0) {
+            if (Inst_Hwnd[slot] = 0 || Inst_Hwnd[slot] = "") {
                 Inst_Hwnd[slot] := hwnd
                 Inst_Titulo[slot] := titulo
                 GuiControl, Main:, EditVentana%slot%, %titulo%
