@@ -1799,7 +1799,7 @@ return
 DetectarVentanaInst(i) {
     global Inst_Hwnd, Inst_Titulo, MAX_INST, SelVentLista, SelVentInstancia
 
-    ; Listar ventanas disponibles (excluir la propia GUI y ventanas del sistema)
+    ; Listar ventanas disponibles (excluir la propia GUI, sistema, y ya asignadas)
     listaVentanas := ""
     WinGet, ids, List
     Loop, %ids% {
@@ -1808,13 +1808,32 @@ DetectarVentanaInst(i) {
         if (titulo = "" || titulo = "Program Manager" || titulo = "Game Bot - Multi-Instancia (5)")
             continue
         WinGet, estilo, Style, ahk_id %hwnd%
-        ; Solo ventanas visibles con borde (ventanas reales)
-        if (estilo & 0x10000000)  ; WS_VISIBLE
-            listaVentanas .= hwnd . "|" . titulo . "`n"
+        ; Solo ventanas visibles (WS_VISIBLE)
+        if !(estilo & 0x10000000)
+            continue
+        ; Solo ventanas top-level con barra de título (WS_CAPTION = WS_BORDER | WS_DLGFRAME)
+        ; Filtra ventanas hijas/auxiliares de MuMu y otros emuladores
+        if !(estilo & 0x00C00000)
+            continue
+        ; Excluir ventanas ya asignadas a OTRAS instancias
+        yaAsignada := false
+        Loop, %MAX_INST% {
+            if (A_Index != i && Inst_Hwnd[A_Index] = hwnd) {
+                yaAsignada := true
+                break
+            }
+        }
+        if (yaAsignada)
+            continue
+
+        ; Obtener PID y clase para distinguir ventanas con mismo título
+        WinGet, pid, PID, ahk_id %hwnd%
+        WinGetClass, clase, ahk_id %hwnd%
+        listaVentanas .= hwnd . "|" . titulo . "|" . pid . "|" . clase . "`n"
     }
 
     if (listaVentanas = "") {
-        MsgBox, 16, Error, No se encontraron ventanas abiertas.
+        MsgBox, 16, Error, No se encontraron ventanas disponibles.`n`n(Las ventanas ya asignadas a otras instancias se excluyen)
         return
     }
 
@@ -1822,7 +1841,7 @@ DetectarVentanaInst(i) {
     Gui, SelVent:Destroy
     Gui, SelVent:Font, s9, Segoe UI
     Gui, SelVent:Add, Text,, Selecciona la ventana para instancia #%i%:
-    Gui, SelVent:Add, ListBox, w400 h300 vSelVentLista
+    Gui, SelVent:Add, ListBox, w500 h300 vSelVentLista
 
     Loop, Parse, listaVentanas, `n
     {
@@ -1831,7 +1850,11 @@ DetectarVentanaInst(i) {
         partes := StrSplit(A_LoopField, "|")
         hwndItem := partes[1]
         tituloItem := partes[2]
-        GuiControl, SelVent:, SelVentLista, %tituloItem% [%hwndItem%]
+        pidItem := partes[3]
+        claseItem := partes[4]
+        ; Mostrar título + PID + clase para distinguir ventanas de MuMu con mismo nombre
+        entrada := tituloItem . " (PID:" . pidItem . " " . claseItem . ") [" . hwndItem . "]"
+        GuiControl, SelVent:, SelVentLista, %entrada%
     }
 
     Gui, SelVent:Add, Button, w200 gSelVentOK, Seleccionar
@@ -1903,6 +1926,9 @@ AutoDetectar:
             continue
         WinGet, estilo, Style, ahk_id %hwnd%
         if !(estilo & 0x10000000)
+            continue
+        ; Solo ventanas top-level con barra de título (filtra hijas/auxiliares)
+        if !(estilo & 0x00C00000)
             continue
 
         esEmulador := false
