@@ -1,10 +1,10 @@
 ; ============================================================================
-; GAME BOT - AutoHotkey v1.1 - MULTI-INSTANCIA (hasta 5)
+; GAME BOT - AutoHotkey v1.1
 ; Bot genérico para automatizar juegos en segundo plano (background)
 ; ============================================================================
 ; HOTKEYS GLOBALES:
-;   F12  = Iniciar / Pausar TODAS las instancias activas
-;   F11  = Detener TODAS las instancias
+;   F12  = Iniciar / Pausar el bot
+;   F11  = Detener el bot completamente
 ;   F10  = Recargar el script
 ; ============================================================================
 
@@ -16,83 +16,82 @@ SetBatchLines, -1
 CoordMode, Pixel, Screen
 
 ; ============================================================================
-; CONSTANTES GLOBALES
+; VARIABLES GLOBALES
 ; ============================================================================
-global MAX_INST := 5
-global TotalPasos := 11
-global TotalExpansiones := 11
+global VentanaObjetivo := ""           ; Título de la ventana del juego
+global BotActivo := false              ; Estado del bot (corriendo o no)
+global BotPausado := false             ; Estado de pausa
+global EstadoActual := "IDLE"          ; Estado actual del bot
+global Variacion := 50                 ; Tolerancia de ImageSearch (0-255)
+global IntervaloLoop := 1000           ; Milisegundos entre cada ciclo
+global MaxReintentos := 5              ; Reintentos antes de cambiar estrategia
+global ModoDebug := true               ; Mostrar logs en la GUI
 global CarpetaImagenes := A_ScriptDir . "\imagenes"
 global ArchivoConfig := A_ScriptDir . "\config.ini"
 
-; Configuración compartida (leída de la GUI)
-global Variacion := 50
-global IntervaloLoop := 1000
-global MaxReintentos := 5
-global ModoDebug := true
-global VentanaAncho := 960
-global VentanaAlto := 540
-global AutoAjustar := false
+; Ajuste de ventana (resolución objetivo para ImageSearch)
+global VentanaAncho := 960              ; Ancho objetivo en píxeles
+global VentanaAlto := 540               ; Alto objetivo en píxeles
+global AutoAjustar := false             ; Ajustar automáticamente al iniciar el bot
 
-; Scroll compartido
-global ScrollActivo := false
-global ScrollRelX := 200
-global ScrollRelY := 300
-global ScrollCantidad := 3
-global ScrollDelay := 500
-global ScrollEnPaso := 0
-
-; Anti-atasco
-global MaxErroresConsecutivos := 30
-global MaxTapIntentos := 30
-global MaxNuevaBatallaIntentos := 10
-global WatchdogSegundos := 300
-global UmbralScanPopups := 15
-
-; ADB - Configuración global
-global ADB_Ruta := ""              ; Ruta al adb.exe (auto-detectada o manual)
-global ADB_Habilitado := false     ; true = usar ADB para clicks/swipes
-
-; Canvas para búsqueda de imágenes aislada (PrintWindow)
-global CanvasHwnd := 0
-global CanvasCreado := false
-
-; Imágenes fijas (compartidas, no cambian por instancia)
-global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
-global IMG_DERROTA  := CarpetaImagenes . "\pantalla_derrota.bmp"
-global IMG_TAP  := CarpetaImagenes . "\boton_tap.bmp"
-global IMG_NEXT := CarpetaImagenes . "\boton_next.bmp"
-global IMG_NUEVA_BATALLA := CarpetaImagenes . "\pantalla_nueva_batalla.bmp"
-global IMG_OK            := CarpetaImagenes . "\boton_ok.bmp"
-global IMG_EQUIS := CarpetaImagenes . "\boton_equis.bmp"
-global IMG_EXPANSIONES := CarpetaImagenes . "\boton_expansiones.bmp"
-
-; Pasos: imágenes y nombres (estáticos, los dinámicos se resuelven en ProcesarInstancia)
+; Pasos de automatización (secuencia de botones a buscar y clicar)
+global TotalPasos := 11
+global PasoActual := 1
 global PasoImagenes := {}
 global PasoNombres := {}
-PasoImagenes[1]  := ""
+PasoImagenes[1]  := ""  ; Dinámico: se actualiza en cada ciclo desde BatallaImagenes
 PasoNombres[1]   := "SeleccionBatalla"
 PasoImagenes[2]  := CarpetaImagenes . "\boton_auto.bmp"
 PasoNombres[2]   := "Auto"
 PasoImagenes[3]  := CarpetaImagenes . "\boton_iniciar.bmp"
 PasoNombres[3]   := "Iniciar"
-PasoImagenes[4]  := ""
+PasoImagenes[4]  := ""  ; Paso especial: escanea victoria/derrota
 PasoNombres[4]   := "Resultado"
-PasoImagenes[5]  := ""
+PasoImagenes[5]  := ""  ; Paso especial: tap dinámico hasta que aparezca Next
 PasoNombres[5]   := "Tap hasta Next"
-PasoImagenes[6]  := ""
+PasoImagenes[6]  := ""  ; Paso especial: detectar nueva batalla desbloqueada
 PasoNombres[6]   := "NuevaBatalla"
 PasoImagenes[7]  := CarpetaImagenes . "\boton_ok.bmp"
 PasoNombres[7]   := "OK"
-PasoImagenes[8]  := ""
+PasoImagenes[8]  := ""  ; Paso especial: selección de batalla (rotación)
 PasoNombres[8]   := "SiguienteBatalla"
-PasoImagenes[9]  := CarpetaImagenes . "\boton_equis.bmp"
+PasoImagenes[9]  := CarpetaImagenes . "\boton_equis.bmp"  ; Botón X para cerrar tras derrota
 PasoNombres[9]   := "CerrarX"
-PasoImagenes[10] := ""
+PasoImagenes[10] := ""  ; Paso especial: cambiar expansión (tap "expansiones")
 PasoNombres[10]  := "CambiarExpansion"
-PasoImagenes[11] := ""
+PasoImagenes[11] := ""  ; Paso especial: seleccionar expansión destino en menú
 PasoNombres[11]  := "SeleccionarExpansion"
 
-; Nombres de expansiones
+; Imágenes de resultado de batalla (usadas en paso 4)
+global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
+global IMG_DERROTA  := CarpetaImagenes . "\pantalla_derrota.bmp"
+
+; Imágenes de tap y next (usadas en paso 5)
+global IMG_TAP  := CarpetaImagenes . "\boton_tap.bmp"
+global IMG_NEXT := CarpetaImagenes . "\boton_next.bmp"
+
+; Imágenes post-victoria (usadas en pasos 6-7)
+global IMG_NUEVA_BATALLA := CarpetaImagenes . "\pantalla_nueva_batalla.bmp"
+global IMG_OK            := CarpetaImagenes . "\boton_ok.bmp"
+
+; Imagen post-derrota (usada en paso 9)
+global IMG_EQUIS := CarpetaImagenes . "\boton_equis.bmp"
+
+; Imagen de expansiones (usada en paso 10)
+global IMG_EXPANSIONES := CarpetaImagenes . "\boton_expansiones.bmp"
+
+; Rotación de batallas (pasos 1 y 8 usan esta lista)
+; Paso 1: selecciona batalla actual (inicio/derrota, NO avanza)
+; Paso 8: selecciona siguiente batalla (victoria, SÍ avanza)
+; Paso 10: cambia de expansión cuando se completa la última batalla
+global BatallaImagenes := {}
+global BatallaNombres := {}
+global TotalBatallas := 0
+global BatallaActual := 1
+
+; Sistema de expansiones (11 expansiones, ~6 batallas cada una)
+global ExpansionActual := 1
+global TotalExpansiones := 11
 global ExpansionNombres := {}
 ExpansionNombres[1]  := "Genetic Apex"
 ExpansionNombres[2]  := "Mythical Island"
@@ -106,7 +105,7 @@ ExpansionNombres[9]  := "Wisdom of Sea and Sky"
 ExpansionNombres[10] := "Manantial Oculto"
 ExpansionNombres[11] := "Deluxe EX"
 
-; Imágenes de expansiones (menú de selección, paso 11)
+; Imágenes de cada expansión en el menú de selección (usadas en paso 11)
 global ExpansionImagenes := {}
 ExpansionImagenes[1]  := CarpetaImagenes . "\boton_genetic_apex.bmp"
 ExpansionImagenes[2]  := CarpetaImagenes . "\boton_mythical_island.bmp"
@@ -120,110 +119,41 @@ ExpansionImagenes[9]  := CarpetaImagenes . "\boton_wisdom_sea_sky.bmp"
 ExpansionImagenes[10] := CarpetaImagenes . "\boton_manantial_oculto.bmp"
 ExpansionImagenes[11] := CarpetaImagenes . "\boton_deluxe_ex.bmp"
 
-; ============================================================================
-; DATOS DE BATALLA PRE-CARGADOS (estructura 2D estática)
-; BatImg[exp, bat] = ruta imagen, BatNom[exp, bat] = nombre, BatCnt[exp] = total
-; ============================================================================
-global BatImg := {}
-global BatNom := {}
-global BatCnt := {}
+; Cargar expansión 1 al inicio
+CargarBatallasExpansion(1)
 
-CargarTodasLasBatallas()
+; Scroll automático
+global ScrollActivo := false
+global ScrollRelX := 200                 ; Coordenada X relativa a la ventana
+global ScrollRelY := 300                 ; Coordenada Y relativa a la ventana
+global ScrollCantidad := 3               ; Clicks de scroll por ciclo
+global ScrollDelay := 500                ; Milisegundos de pausa entre cada scroll individual
+global ScrollEnPaso := 0                 ; 0=Todos, 1-3=Paso específico
 
-; ============================================================================
-; ESTADO PER-INSTANCIA (arrays indexados 1-5)
-; ============================================================================
-global Inst_Hwnd := {}
-global Inst_Titulo := {}
-global Inst_Activo := {}
-global Inst_Pausado := {}
-global Inst_Estado := {}
-global Inst_Paso := {}
-global Inst_Exp := {}
-global Inst_Bat := {}
-global Inst_Ataques := {}
-global Inst_Ciclos := {}
-global Inst_Errores := {}
-global Inst_ErrCon := {}
-global Inst_P1Int := {}
-global Inst_P8Int := {}
-global Inst_P10Int := {}
-global Inst_P10Menu := {}  ; 0=buscando botón Expansiones, 1=menú abierto (solo buscar expansión destino)
-global Inst_P11Int := {}
-global Inst_ResInt := {}
-global Inst_TapInt := {}
-global Inst_NBInt := {}
-global Inst_RutaPN := {}
-global Inst_Cooldown := {}
-global Inst_SkipTick := {}
-global Inst_LastExito := {}
-global RR_Inst := 0  ; Round-robin: última instancia procesada
-global RR_Intervalo := 0  ; Intervalo real del timer (ms)
-global Inst_RecuperacionTotal := {}
+; Contadores
+global ContadorAtaques := 0
+global ContadorCiclos := 0
+global ContadorErrores := 0
 
-; ADB por instancia
-global Inst_ADB_Puerto := {}       ; Puerto ADB de cada instancia (16384, 16416, etc.)
-global Inst_ADB_Device := {}       ; Device string "127.0.0.1:PUERTO"
-global Inst_ADB_Conectado := {}    ; true/false - conexión ADB verificada
-global Inst_ADB_Res := {}          ; Resolución interna Android {w:, h:} para mapeo de coordenadas
+; Anti-atasco: errores consecutivos en el mismo paso
+global ErroresConsecutivos := 0          ; Errores seguidos en el paso actual
+global MaxErroresConsecutivos := 30      ; Limite antes de intentar recuperación
 
-; Estado de recuperación incremental por instancia
-global Inst_RecupFase := {}         ; 0=no en recuperación, 1-6=escaneando popup N
-global Inst_RecupOrigen := {}       ; paso de origen para log
+; Pasos 1 y 8: búsqueda con scroll automático (scroll en cada intento fallido)
+global Paso1Intentos := 0
+global Paso8Intentos := 0
+global Paso10Intentos := 0
+global Paso11Intentos := 0
+global ResultadoIntentos := 0
 
-; Estado de scroll no-bloqueante por instancia
-global Inst_ScrollActivo := {}      ; true/false - si hay un scroll en curso
-global Inst_ScrollHwndTarget := {}  ; hwnd del target del scroll
-global Inst_ScrollChildX := {}      ; coordenada X del scroll
-global Inst_ScrollYActual := {}     ; posición Y actual del arrastre
-global Inst_ScrollYFin := {}        ; posición Y final del arrastre
-global Inst_ScrollDir := {}         ; -1 o +1 dirección del arrastre
-global Inst_ScrollPasoSize := {}    ; tamaño de cada paso (8px)
-global Inst_ScrollPasos := {}       ; pasos restantes
-global Inst_ScrollFase := {}        ; 0=idle, 1=arrastrando, 2=soltar, 3=buscar-post-scroll
-global Inst_ScrollPostImg := {}     ; imagen a buscar tras scroll (o "" si ninguna)
-global Inst_ScrollRepetir := {}     ; repeticiones de scroll pendientes (para scroll inverso)
-global Inst_ScrollCantidad := {}    ; cantidad original (para repeticiones)
-global Inst_ScrollRelX := {}        ; relX original (para repeticiones)
-global Inst_ScrollRelY := {}        ; relY original (para repeticiones)
+; Paso 5: tap dinámico hasta Next (máquina de estados)
+global TapIntentos := 0               ; Intentos en el loop de taps
+global MaxTapIntentos := 30            ; Máximo de intentos antes de recuperación
+global RutaPostNext := 1              ; A dónde ir después de Next (6=victoria, 1=derrota)
 
-; Cache de dimensiones de imagen y existencia de archivos
-global ImgDimCache := {}
-global FileExistCache := {}
-
-; Log buffering
-global LogBuffer := ""
-global LogCharCount := 0
-
-; Inicializar estado de todas las instancias
-Loop, %MAX_INST% {
-    i := A_Index
-    Inst_Hwnd[i] := 0
-    Inst_Titulo[i] := ""
-    Inst_Activo[i] := false
-    Inst_Pausado[i] := false
-    Inst_Estado[i] := "IDLE"
-    Inst_Paso[i] := 1
-    Inst_Exp[i] := 1
-    Inst_Bat[i] := 1
-    Inst_Ataques[i] := 0
-    Inst_Ciclos[i] := 0
-    Inst_Errores[i] := 0
-    Inst_ErrCon[i] := 0
-    Inst_P1Int[i] := 0
-    Inst_P8Int[i] := 0
-    Inst_P10Int[i] := 0
-    Inst_P10Menu[i] := 0
-    Inst_P11Int[i] := 0
-    Inst_ResInt[i] := 0
-    Inst_TapInt[i] := 0
-    Inst_NBInt[i] := 0
-    Inst_RutaPN[i] := 1
-    Inst_Cooldown[i] := 0
-    Inst_SkipTick[i] := 0
-    Inst_LastExito[i] := 0
-    Inst_RecuperacionTotal[i] := 0
-}
+; Paso 6: detección de nueva batalla desbloqueada
+global NuevaBatallaIntentos := 0
+global MaxNuevaBatallaIntentos := 10  ; ~10 segundos esperando antes de saltar
 
 ; ============================================================================
 ; CREAR CARPETA DE IMÁGENES SI NO EXISTE
@@ -232,217 +162,21 @@ if !FileExist(CarpetaImagenes)
     FileCreateDir, %CarpetaImagenes%
 
 ; ============================================================================
-; CARGAR CONFIGURACIÓN Y CREAR GUI
+; CARGAR CONFIGURACIÓN GUARDADA Y CREAR GUI
 ; ============================================================================
 CargarConfig()
 CrearGUI()
 return
 
 ; ============================================================================
-; FUNCIÓN: Pre-cargar TODAS las batallas de TODAS las expansiones
-; ============================================================================
-CargarTodasLasBatallas() {
-    global BatImg, BatNom, BatCnt, CarpetaImagenes
-    ci := CarpetaImagenes
-
-    ; Expansion 1: Genetic Apex (6 batallas)
-    BatCnt[1] := 6
-    BatImg[1,1] := ci . "\boton_venasaur_ex.bmp"
-    BatNom[1,1] := "Venasaur EX"
-    BatImg[1,2] := ci . "\boton_charizard_ex.bmp"
-    BatNom[1,2] := "Charizard EX"
-    BatImg[1,3] := ci . "\boton_starmie_ex.bmp"
-    BatNom[1,3] := "Starmie EX"
-    BatImg[1,4] := ci . "\boton_pikachu_ex.bmp"
-    BatNom[1,4] := "Pikachu EX"
-    BatImg[1,5] := ci . "\boton_mewtwo_ex.bmp"
-    BatNom[1,5] := "Mewtwo EX"
-    BatImg[1,6] := ci . "\boton_machamp_ex.bmp"
-    BatNom[1,6] := "Machamp EX"
-
-    ; Expansion 2: Mythical Island (8 batallas)
-    BatCnt[2] := 8
-    BatImg[2,1] := ci . "\boton_venusaur_ex_mi.bmp"
-    BatNom[2,1] := "Venusaur EX"
-    BatImg[2,2] := ci . "\boton_celebi_ex.bmp"
-    BatNom[2,2] := "Celebi EX"
-    BatImg[2,3] := ci . "\boton_volcarona_ex.bmp"
-    BatNom[2,3] := "Volcarona EX"
-    BatImg[2,4] := ci . "\boton_gyarados_ex.bmp"
-    BatNom[2,4] := "Gyarados EX"
-    BatImg[2,5] := ci . "\boton_raichu_ex.bmp"
-    BatNom[2,5] := "Raichu EX"
-    BatImg[2,6] := ci . "\boton_mew_ex.bmp"
-    BatNom[2,6] := "Mew EX"
-    BatImg[2,7] := ci . "\boton_aerodactyl_ex.bmp"
-    BatNom[2,7] := "Aerodactyl EX"
-    BatImg[2,8] := ci . "\boton_blue_deck.bmp"
-    BatNom[2,8] := "Blue Deck"
-
-    ; Expansion 3: Space Time Smackdown (8 batallas)
-    BatCnt[3] := 8
-    BatImg[3,1] := ci . "\boton_yanmega_ex.bmp"
-    BatNom[3,1] := "Yanmega EX"
-    BatImg[3,2] := ci . "\boton_infernape_ex.bmp"
-    BatNom[3,2] := "Infernape EX"
-    BatImg[3,3] := ci . "\boton_palkia_ex.bmp"
-    BatNom[3,3] := "Palkia EX"
-    BatImg[3,4] := ci . "\boton_pachirisu_ex.bmp"
-    BatNom[3,4] := "Pachirisu EX"
-    BatImg[3,5] := ci . "\boton_mismagius_ex.bmp"
-    BatNom[3,5] := "Mismagius EX"
-    BatImg[3,6] := ci . "\boton_gallade_ex.bmp"
-    BatNom[3,6] := "Gallade EX"
-    BatImg[3,7] := ci . "\boton_darkrai_ex.bmp"
-    BatNom[3,7] := "Darkrai EX"
-    BatImg[3,8] := ci . "\boton_dialga_ex.bmp"
-    BatNom[3,8] := "Dialga EX"
-
-    ; Expansion 4: Triumphant Light (7 batallas)
-    BatCnt[4] := 7
-    BatImg[4,1] := ci . "\boton_leafeon_ex.bmp"
-    BatNom[4,1] := "Leafeon EX"
-    BatImg[4,2] := ci . "\boton_arceus_infernape.bmp"
-    BatNom[4,2] := "Arceus Infernape"
-    BatImg[4,3] := ci . "\boton_glaceon_ex.bmp"
-    BatNom[4,3] := "Glaceon EX"
-    BatImg[4,4] := ci . "\boton_arceus_pachirisu.bmp"
-    BatNom[4,4] := "Arceus Pachirisu"
-    BatImg[4,5] := ci . "\boton_garchomp_ex.bmp"
-    BatNom[4,5] := "Garchomp EX"
-    BatImg[4,6] := ci . "\boton_arceus_weavile.bmp"
-    BatNom[4,6] := "Arceus Weavile"
-    BatImg[4,7] := ci . "\boton_probopass_ex.bmp"
-    BatNom[4,7] := "Probopass EX"
-
-    ; Expansion 5: Shining Revelry (9 batallas)
-    BatCnt[5] := 9
-    BatImg[5,1] := ci . "\boton_beedrill_ex.bmp"
-    BatNom[5,1] := "Beedrill EX"
-    BatImg[5,2] := ci . "\boton_charizard_arceus.bmp"
-    BatNom[5,2] := "Charizard Arceus"
-    BatImg[5,3] := ci . "\boton_wugtrio_ex.bmp"
-    BatNom[5,3] := "Wugtrio EX"
-    BatImg[5,4] := ci . "\boton_pikachu_magnezone.bmp"
-    BatNom[5,4] := "Pikachu Magnezone"
-    BatImg[5,5] := ci . "\boton_giratina_ex.bmp"
-    BatNom[5,5] := "Giratina EX"
-    BatImg[5,6] := ci . "\boton_lucario_ex.bmp"
-    BatNom[5,6] := "Lucario EX"
-    BatImg[5,7] := ci . "\boton_paldean_clodsire_ex.bmp"
-    BatNom[5,7] := "Paldean Clodsire EX"
-    BatImg[5,8] := ci . "\boton_tinkaton_ex.bmp"
-    BatNom[5,8] := "Tinkaton EX"
-    BatImg[5,9] := ci . "\boton_bibarel_ex.bmp"
-    BatNom[5,9] := "Bibarel EX"
-
-    ; Expansion 6: Celestial Guardians (8 batallas)
-    BatCnt[6] := 8
-    BatImg[6,1] := ci . "\boton_decidueye_ex.bmp"
-    BatNom[6,1] := "Decidueye EX"
-    BatImg[6,2] := ci . "\boton_incineroar_ex.bmp"
-    BatNom[6,2] := "Incineroar EX"
-    BatImg[6,3] := ci . "\boton_crabominable_ex.bmp"
-    BatNom[6,3] := "Crabominable EX"
-    BatImg[6,4] := ci . "\boton_alolan_raichu_ex.bmp"
-    BatNom[6,4] := "Alolan Raichu EX"
-    BatImg[6,5] := ci . "\boton_lunala_ex.bmp"
-    BatNom[6,5] := "Lunala EX"
-    BatImg[6,6] := ci . "\boton_passimian_ex.bmp"
-    BatNom[6,6] := "Passimian EX"
-    BatImg[6,7] := ci . "\boton_alolan_muk_ex.bmp"
-    BatNom[6,7] := "Alolan Muk EX"
-    BatImg[6,8] := ci . "\boton_solgaleo_ex.bmp"
-    BatNom[6,8] := "Solgaleo EX"
-
-    ; Expansion 7: Extradimensional Crisis (4 batallas)
-    BatCnt[7] := 4
-    BatImg[7,1] := ci . "\boton_buzzwole_ex.bmp"
-    BatNom[7,1] := "Buzzwole EX"
-    BatImg[7,2] := ci . "\boton_tapu_koko_ex.bmp"
-    BatNom[7,2] := "Tapu Koko EX"
-    BatImg[7,3] := ci . "\boton_lycanroc_ex.bmp"
-    BatNom[7,3] := "Lycanroc EX"
-    BatImg[7,4] := ci . "\boton_guzzlord_ex.bmp"
-    BatNom[7,4] := "Guzzlord EX"
-
-    ; Expansion 8: Eevee Grove (4 batallas)
-    BatCnt[8] := 4
-    BatImg[8,1] := ci . "\boton_tsareena_ex.bmp"
-    BatNom[8,1] := "Tsareena EX"
-    BatImg[8,2] := ci . "\boton_flareon_ex.bmp"
-    BatNom[8,2] := "Flareon EX"
-    BatImg[8,3] := ci . "\boton_primarina_ex.bmp"
-    BatNom[8,3] := "Primarina EX"
-    BatImg[8,4] := ci . "\boton_sylveon_ex.bmp"
-    BatNom[8,4] := "Sylveon EX"
-
-    ; Expansion 9: Wisdom of Sea and Sky (8 batallas)
-    BatCnt[9] := 8
-    BatImg[9,1] := ci . "\boton_shuckle_ex.bmp"
-    BatNom[9,1] := "Shuckle EX"
-    BatImg[9,2] := ci . "\boton_lugia_ex.bmp"
-    BatNom[9,2] := "Lugia EX"
-    BatImg[9,3] := ci . "\boton_kingdra_ex.bmp"
-    BatNom[9,3] := "Kingdra EX"
-    BatImg[9,4] := ci . "\boton_lanturn_ex.bmp"
-    BatNom[9,4] := "Lanturn EX"
-    BatImg[9,5] := ci . "\boton_espeon_ex.bmp"
-    BatNom[9,5] := "Espeon EX"
-    BatImg[9,6] := ci . "\boton_donphan_ex.bmp"
-    BatNom[9,6] := "Donphan EX"
-    BatImg[9,7] := ci . "\boton_umbreon_ex.bmp"
-    BatNom[9,7] := "Umbreon EX"
-    BatImg[9,8] := ci . "\boton_skarmory_ex.bmp"
-    BatNom[9,8] := "Skarmory EX"
-
-    ; Expansion 10: Manantial Oculto (6 batallas)
-    BatCnt[10] := 6
-    BatImg[10,1] := ci . "\boton_jumpluff_ex.bmp"
-    BatNom[10,1] := "Jumpluff EX"
-    BatImg[10,2] := ci . "\boton_entei_ex.bmp"
-    BatNom[10,2] := "Entei EX"
-    BatImg[10,3] := ci . "\boton_suicune_ex.bmp"
-    BatNom[10,3] := "Suicune EX"
-    BatImg[10,4] := ci . "\boton_raikou_ex.bmp"
-    BatNom[10,4] := "Raikou EX"
-    BatImg[10,5] := ci . "\boton_latios_ex.bmp"
-    BatNom[10,5] := "Latios EX"
-    BatImg[10,6] := ci . "\boton_poliwrath_ex.bmp"
-    BatNom[10,6] := "Poliwrath EX"
-
-    ; Expansion 11: Deluxe EX (9 batallas)
-    BatCnt[11] := 9
-    BatImg[11,1] := ci . "\boton_buzzwole_decidueye.bmp"
-    BatNom[11,1] := "Buzzwole Decidueye"
-    BatImg[11,2] := ci . "\boton_charizard_moltres.bmp"
-    BatNom[11,2] := "Charizard Moltres"
-    BatImg[11,3] := ci . "\boton_palkia_articuno.bmp"
-    BatNom[11,3] := "Palkia Articuno"
-    BatImg[11,4] := ci . "\boton_pikachu_raichu.bmp"
-    BatNom[11,4] := "Pikachu Raichu"
-    BatImg[11,5] := ci . "\boton_mewtwo_mew.bmp"
-    BatNom[11,5] := "Mewtwo Mew"
-    BatImg[11,6] := ci . "\boton_lucario_donphan.bmp"
-    BatNom[11,6] := "Lucario Donphan"
-    BatImg[11,7] := ci . "\boton_guzzlord_darkrai.bmp"
-    BatNom[11,7] := "Guzzlord Darkrai"
-    BatImg[11,8] := ci . "\boton_solgaleo_dialga.bmp"
-    BatNom[11,8] := "Solgaleo Dialga"
-    BatImg[11,9] := ci . "\boton_lugia_hooh.bmp"
-    BatNom[11,9] := "Lugia HoOh"
-}
-
-; ============================================================================
 ; FUNCIÓN: Guardar configuración en archivo INI
 ; ============================================================================
 GuardarConfig() {
-    global ArchivoConfig, Variacion, IntervaloLoop, MaxReintentos, ModoDebug
+    global ArchivoConfig, VentanaObjetivo, Variacion, IntervaloLoop, MaxReintentos, ModoDebug
     global VentanaAncho, VentanaAlto, AutoAjustar
     global ScrollActivo, ScrollRelX, ScrollRelY, ScrollCantidad, ScrollDelay, ScrollEnPaso
-    global MAX_INST, Inst_Titulo, Inst_Exp, Inst_Bat
 
-    ; Leer valores actuales de la GUI
+    ; Leer valores actuales de la GUI (por si el usuario cambió algo sin iniciar el bot)
     GuiControlGet, tmpVariacion, Main:, EditVariacion
     GuiControlGet, tmpIntervalo, Main:, EditIntervalo
     GuiControlGet, tmpReintentos, Main:, EditReintentos
@@ -457,6 +191,7 @@ GuardarConfig() {
     GuiControlGet, tmpScrollDelay, Main:, EditScrollDelay
     GuiControlGet, tmpScrollPaso, Main:, DDLScrollPaso
 
+    ; Calcular índice del paso de scroll
     tmpScrollEnPaso := 0
     Loop, 3 {
         if InStr(tmpScrollPaso, "Paso " . A_Index) {
@@ -466,6 +201,7 @@ GuardarConfig() {
     }
 
     ; Sección General
+    IniWrite, %VentanaObjetivo%, %ArchivoConfig%, General, VentanaObjetivo
     IniWrite, %tmpVariacion%, %ArchivoConfig%, General, Variacion
     IniWrite, %tmpIntervalo%, %ArchivoConfig%, General, IntervaloLoop
     IniWrite, %tmpReintentos%, %ArchivoConfig%, General, MaxReintentos
@@ -483,38 +219,23 @@ GuardarConfig() {
     IniWrite, %tmpScrollCant%, %ArchivoConfig%, Scroll, ScrollCantidad
     IniWrite, %tmpScrollDelay%, %ArchivoConfig%, Scroll, ScrollDelay
     IniWrite, %tmpScrollEnPaso%, %ArchivoConfig%, Scroll, ScrollEnPaso
-
-    ; Sección ADB
-    GuiControlGet, tmpADB, Main:, ChkADB
-    GuiControlGet, tmpADBRuta, Main:, EditADBRuta
-    GuiControlGet, tmpADBPuertos, Main:, EditADBPuertos
-    IniWrite, %tmpADB%, %ArchivoConfig%, ADB, Habilitado
-    IniWrite, %tmpADBRuta%, %ArchivoConfig%, ADB, Ruta
-    IniWrite, %tmpADBPuertos%, %ArchivoConfig%, ADB, Puertos
-
-    ; Secciones por instancia
-    Loop, %MAX_INST% {
-        i := A_Index
-        sec := "Instance" . i
-        IniWrite, % Inst_Titulo[i], %ArchivoConfig%, %sec%, Ventana
-        IniWrite, % Inst_Exp[i], %ArchivoConfig%, %sec%, Expansion
-        IniWrite, % Inst_Bat[i], %ArchivoConfig%, %sec%, Batalla
-    }
 }
 
 ; ============================================================================
 ; FUNCIÓN: Cargar configuración desde archivo INI
 ; ============================================================================
 CargarConfig() {
-    global ArchivoConfig, Variacion, IntervaloLoop, MaxReintentos, ModoDebug
+    global ArchivoConfig, VentanaObjetivo, Variacion, IntervaloLoop, MaxReintentos, ModoDebug
     global VentanaAncho, VentanaAlto, AutoAjustar
     global ScrollActivo, ScrollRelX, ScrollRelY, ScrollCantidad, ScrollDelay, ScrollEnPaso
-    global MAX_INST, Inst_Titulo, Inst_Exp, Inst_Bat
-    global ADB_Habilitado, ADB_Ruta, Inst_ADB_Puerto
 
+    ; Si no existe el archivo, usar los valores por defecto (ya definidos en variables globales)
     if !FileExist(ArchivoConfig)
         return
 
+    ; Sección General
+    IniRead, tmp, %ArchivoConfig%, General, VentanaObjetivo, %VentanaObjetivo%
+    VentanaObjetivo := tmp
     IniRead, tmp, %ArchivoConfig%, General, Variacion, %Variacion%
     Variacion := tmp + 0
     IniRead, tmp, %ArchivoConfig%, General, IntervaloLoop, %IntervaloLoop%
@@ -524,6 +245,7 @@ CargarConfig() {
     IniRead, tmp, %ArchivoConfig%, General, ModoDebug, %ModoDebug%
     ModoDebug := tmp + 0
 
+    ; Sección Ventana
     IniRead, tmp, %ArchivoConfig%, Ventana, VentanaAncho, %VentanaAncho%
     VentanaAncho := tmp + 0
     IniRead, tmp, %ArchivoConfig%, Ventana, VentanaAlto, %VentanaAlto%
@@ -531,6 +253,7 @@ CargarConfig() {
     IniRead, tmp, %ArchivoConfig%, Ventana, AutoAjustar, %AutoAjustar%
     AutoAjustar := tmp + 0
 
+    ; Sección Scroll
     IniRead, tmp, %ArchivoConfig%, Scroll, ScrollActivo, %ScrollActivo%
     ScrollActivo := tmp + 0
     IniRead, tmp, %ArchivoConfig%, Scroll, ScrollRelX, %ScrollRelX%
@@ -543,1036 +266,675 @@ CargarConfig() {
     ScrollDelay := tmp + 0
     IniRead, tmp, %ArchivoConfig%, Scroll, ScrollEnPaso, %ScrollEnPaso%
     ScrollEnPaso := tmp + 0
-
-    ; ADB
-    IniRead, tmp, %ArchivoConfig%, ADB, Habilitado, 0
-    ADB_Habilitado := tmp + 0
-    IniRead, tmp, %ArchivoConfig%, ADB, Ruta, %ADB_Ruta%
-    if (tmp != "ERROR" && tmp != "")
-        ADB_Ruta := tmp
-    IniRead, tmp, %ArchivoConfig%, ADB, Puertos,
-    if (tmp != "ERROR" && tmp != "") {
-        StringSplit, pArr, tmp, `,
-        Loop, %MAX_INST% {
-            if (A_Index <= pArr0) {
-                p := RegExReplace(pArr%A_Index%, "[^0-9]", "") + 0
-                Inst_ADB_Puerto[A_Index] := p
-            }
-        }
-    }
-
-    ; Cargar instancias
-    Loop, %MAX_INST% {
-        i := A_Index
-        sec := "Instance" . i
-        IniRead, tmp, %ArchivoConfig%, %sec%, Ventana, % ""
-        Inst_Titulo[i] := tmp
-        IniRead, tmp, %ArchivoConfig%, %sec%, Expansion, 1
-        Inst_Exp[i] := tmp + 0
-        IniRead, tmp, %ArchivoConfig%, %sec%, Batalla, 1
-        Inst_Bat[i] := tmp + 0
-    }
 }
 
 ; ============================================================================
-; FUNCIÓN: Crear la interfaz gráfica principal (Multi-Instancia)
+; FUNCIÓN: Crear la interfaz gráfica principal
 ; ============================================================================
 CrearGUI() {
-    global
+    global EditVentana, EditVariacion, EditIntervalo, EditReintentos, ChkDebug, TextoEstado, LogText
+    global ChkScroll, EditScrollX, EditScrollY, EditScrollCant, EditScrollDelay, DDLScrollPaso
+    global EditVentanaAncho, EditVentanaAlto, ChkAutoAjustar
+    global VentanaObjetivo, Variacion, IntervaloLoop, MaxReintentos, ModoDebug
+    global VentanaAncho, VentanaAlto, AutoAjustar
+    global ScrollActivo, ScrollRelX, ScrollRelY, ScrollCantidad, ScrollDelay, ScrollEnPaso
+
+    ; Destruir GUI anterior si existe
     Gui, Main:Destroy
+
+    ; Configurar fuente
     Gui, Main:Font, s9, Segoe UI
     Gui, Main:Color, 1a1a2e
 
-    ; --- SECCIÓN: INSTANCIAS ---
+    ; --- SECCIÓN: Selección de Ventana ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y10 w660 h260, INSTANCIAS
+    Gui, Main:Add, GroupBox, x10 y10 w460 h100, SELECCIÓN DE VENTANA DEL JUEGO
+
+    Gui, Main:Font, s9 cSilver Normal
+    Gui, Main:Add, Text, x25 y35, Ventana objetivo:
+    Gui, Main:Font, s9 c0x00FF88
+    ventanaTexto := (VentanaObjetivo != "") ? VentanaObjetivo : "(ninguna seleccionada)"
+    Gui, Main:Add, Edit, x130 y32 w220 h22 vEditVentana ReadOnly, %ventanaTexto%
 
     Gui, Main:Font, s9 cWhite Normal
-    Gui, Main:Add, Button, x520 y10 w70 h20 gAutoDetectar, Auto-Det
-    Gui, Main:Add, Button, x595 y10 w70 h20 gAutoAcomodar, Acomodar
+    Gui, Main:Add, Button, x360 y30 w100 h25 gDetectarVentana, DETECTAR (clic)
+    Gui, Main:Add, Button, x25 y65 w140 h30 gListarVentanas, Listar Ventanas
+    Gui, Main:Add, Button, x175 y65 w140 h30 gEscribirVentana, Escribir Título
+    Gui, Main:Add, Button, x325 y65 w135 h30 gVerificarVentana, Verificar Ventana
 
-    ; Construir lista de expansiones
+    ; --- SECCIÓN: Ajuste de Ventana ---
+    Gui, Main:Font, s10 cWhite Bold
+    Gui, Main:Add, GroupBox, x10 y120 w460 h70, AJUSTE DE VENTANA (RESOLUCIÓN)
+
+    Gui, Main:Font, s9 cSilver Normal
+    Gui, Main:Add, Text, x25 y145, Ancho:
+    Gui, Main:Add, Edit, x70 y142 w60 h22 vEditVentanaAncho, %VentanaAncho%
+    Gui, Main:Add, Text, x140 y145, Alto:
+    Gui, Main:Add, Edit, x175 y142 w60 h22 vEditVentanaAlto, %VentanaAlto%
+    Gui, Main:Font, s9 cWhite Normal
+    Gui, Main:Add, Button, x250 y140 w105 h25 gAjustarVentana, Ajustar Ventana
+    Gui, Main:Add, Button, x360 y140 w100 h25 gConsultarTamano, Ver Actual
+    chkAutoVal := AutoAjustar ? "Checked" : ""
+    Gui, Main:Add, CheckBox, x25 y168 vChkAutoAjustar %chkAutoVal% cWhite, Auto-ajustar al iniciar bot
+
+    ; --- SECCIÓN: Configuración ---
+    Gui, Main:Font, s10 cWhite Bold
+    Gui, Main:Add, GroupBox, x10 y200 w460 h100, CONFIGURACIÓN
+
+    Gui, Main:Font, s9 cSilver Normal
+    Gui, Main:Add, Text, x25 y225, Variación (tolerancia):
+    Gui, Main:Add, Edit, x170 y222 w50 h22 vEditVariacion, %Variacion%
+    Gui, Main:Add, UpDown, Range0-255, %Variacion%
+
+    Gui, Main:Add, Text, x240 y225, Intervalo (ms):
+    Gui, Main:Add, Edit, x360 y222 w80 h22 vEditIntervalo, %IntervaloLoop%
+    Gui, Main:Add, UpDown, Range100-10000, %IntervaloLoop%
+
+    Gui, Main:Add, Text, x25 y255, Max reintentos:
+    Gui, Main:Add, Edit, x170 y252 w50 h22 vEditReintentos, %MaxReintentos%
+    Gui, Main:Add, UpDown, Range1-50, %MaxReintentos%
+
+    chkDebugVal := ModoDebug ? "Checked" : ""
+    Gui, Main:Add, CheckBox, x240 y255 vChkDebug %chkDebugVal% cWhite, Modo Debug (logs visibles)
+
+    ; --- SECCIÓN: Swipe/Scroll Automático ---
+    Gui, Main:Font, s10 cWhite Bold
+    Gui, Main:Add, GroupBox, x10 y310 w460 h120, SWIPE AUTOMÁTICO (scroll)
+
+    Gui, Main:Font, s9 cSilver Normal
+    chkScrollVal := ScrollActivo ? "Checked" : ""
+    Gui, Main:Add, CheckBox, x25 y335 vChkScroll %chkScrollVal% cWhite, Activar swipe
+    Gui, Main:Add, Text, x150 y336 cSilver, X (rel):
+    Gui, Main:Add, Edit, x195 y333 w55 h22 vEditScrollX, %ScrollRelX%
+    Gui, Main:Add, Text, x260 y336 cSilver, Y (rel):
+    Gui, Main:Add, Edit, x305 y333 w55 h22 vEditScrollY, %ScrollRelY%
+    Gui, Main:Add, Text, x370 y336 cSilver, Fuerza:
+    Gui, Main:Add, Edit, x415 y333 w45 h22 vEditScrollCant, %ScrollCantidad%
+    Gui, Main:Add, UpDown, Range1-20, %ScrollCantidad%
+
+    Gui, Main:Add, Text, x25 y363 cSilver, Swipe en paso:
+    scrollPasoIndice := ScrollEnPaso + 1
+    Gui, Main:Add, DropDownList, x120 y360 w195 vDDLScrollPaso Choose%scrollPasoIndice%, Todos los ciclos|Paso 1: Nivel|Paso 2: Auto|Paso 3: Iniciar
+    Gui, Main:Add, Text, x325 y363 cSilver, Delay (ms):
+    Gui, Main:Add, Edit, x395 y360 w60 h22 vEditScrollDelay, %ScrollDelay%
+    Gui, Main:Add, UpDown, Range100-3000, %ScrollDelay%
+
+    Gui, Main:Font, s9 cWhite Normal
+    Gui, Main:Add, Button, x25 y395 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
+    Gui, Main:Add, Button, x235 y395 w225 h25 gProbarScroll, Probar Swipe
+
+    ; --- SECCIÓN: Inicio (Expansión, Batalla, Paso) ---
+    Gui, Main:Font, s10 cWhite Bold
+    Gui, Main:Add, GroupBox, x10 y440 w460 h100, INICIO (EXPANSIÓN / BATALLA / PASO)
+
+    Gui, Main:Font, s9 cSilver Normal
+    ; Fila 1: Expansión y Batalla
+    Gui, Main:Add, Text, x25 y463 cSilver, Expansión:
+    ; Construir lista de expansiones disponibles (las que tienen batallas)
     listaExp := ""
     Loop, %TotalExpansiones% {
         if (listaExp != "")
             listaExp .= "|"
         listaExp .= A_Index . ": " . ExpansionNombres[A_Index]
     }
+    Gui, Main:Add, DropDownList, x90 y460 w200 vDDLExpansion Choose1 gCambiarExpansionGUI, %listaExp%
 
-    ; Fila de cada instancia
-    yBase := 35
-    Loop, %MAX_INST% {
-        i := A_Index
-        yRow := yBase + (i - 1) * 42
-
-        Gui, Main:Font, s9 c0x00FF88 Bold
-        Gui, Main:Add, Text, x20 y%yRow% w25 h22 +0x200, #%i%
-
-        Gui, Main:Font, s9 cWhite Normal
-        ventTxt := Inst_Titulo[i] != "" ? Inst_Titulo[i] : "(sin ventana)"
-        Gui, Main:Add, Edit, x45 y%yRow% w130 h22 vEditVentana%i% ReadOnly, %ventTxt%
-        Gui, Main:Add, Button, x178 y%yRow% w30 h22 gDetectarVentana%i%, Det
-
-        ; DDL Expansión
-        expChoose := Inst_Exp[i] > 0 ? Inst_Exp[i] : 1
-        Gui, Main:Add, DropDownList, x212 y%yRow% w160 h300 vDDLExp%i% Choose%expChoose% gCambiarExpGUI%i%, %listaExp%
-
-        ; DDL Batalla (se llena según expansión)
-        expI := Inst_Exp[i] > 0 ? Inst_Exp[i] : 1
-        batCount := BatCnt[expI]
-        listaBat := ""
-        Loop, %batCount% {
-            if (listaBat != "")
-                listaBat .= "|"
-            listaBat .= A_Index . ": " . BatNom[expI, A_Index]
-        }
-        if (listaBat = "")
-            listaBat := "(sin batallas)"
-        batChoose := Inst_Bat[i] > 0 && Inst_Bat[i] <= batCount ? Inst_Bat[i] : 1
-        Gui, Main:Add, DropDownList, x376 y%yRow% w120 h300 vDDLBat%i% Choose%batChoose%, %listaBat%
-
-        ; Botones control individual
-        Gui, Main:Font, s9 cWhite Bold
-        Gui, Main:Add, Button, x502 y%yRow% w50 h22 gIniciarInst%i%, Play
-        Gui, Main:Add, Button, x555 y%yRow% w50 h22 gPausarInst%i%, Pausa
-        Gui, Main:Add, Button, x608 y%yRow% w50 h22 gDetenerInst%i%, Stop
-        Gui, Main:Font, s9 cWhite Normal
+    Gui, Main:Add, Text, x300 y463 cSilver, Batalla:
+    ; Construir lista de batallas de la expansión actual
+    listaBat := ""
+    Loop, %TotalBatallas% {
+        if (listaBat != "")
+            listaBat .= "|"
+        listaBat .= A_Index . ": " . BatallaNombres[A_Index]
     }
+    Gui, Main:Add, DropDownList, x350 y460 w110 vDDLBatalla Choose1, %listaBat%
 
-    ; Botones globales
-    yGlobal := yBase + MAX_INST * 42 + 5
-    Gui, Main:Font, s9 cWhite Bold
-    Gui, Main:Add, Button, x20 y%yGlobal% w200 h28 gIniciarTodos, INICIAR TODOS (F12)
-    Gui, Main:Add, Button, x230 y%yGlobal% w200 h28 gPausarTodos, PAUSAR TODOS
-    Gui, Main:Add, Button, x440 y%yGlobal% w220 h28 gDetenerTodos, DETENER TODOS (F11)
+    ; Fila 2: Paso
+    Gui, Main:Add, Text, x25 y493 cSilver, Paso:
+    Gui, Main:Add, DropDownList, x65 y490 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla|9: CerrarX|10: CambiarExpansion|11: SeleccionarExpansion
 
-    ; --- SECCIÓN: CONFIGURACIÓN ---
-    yConf := 280
+    ; --- SECCIÓN: Control del Bot ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y%yConf% w660 h70, CONFIGURACION
+    Gui, Main:Add, GroupBox, x10 y550 w460 h60, CONTROL DEL BOT
 
-    yConfR := yConf + 25
-    Gui, Main:Font, s9 cSilver Normal
-    Gui, Main:Add, Text, x25 y%yConfR%, Var:
-    Gui, Main:Add, Edit, x50 y%yConfR% w45 h22 vEditVariacion, %Variacion%
-    Gui, Main:Add, UpDown, Range0-255, %Variacion%
-    Gui, Main:Add, Text, x105 y%yConfR%, Int(ms):
-    Gui, Main:Add, Edit, x155 y%yConfR% w60 h22 vEditIntervalo, %IntervaloLoop%
-    Gui, Main:Add, UpDown, Range100-10000, %IntervaloLoop%
-    Gui, Main:Add, Text, x225 y%yConfR%, Rein:
-    Gui, Main:Add, Edit, x260 y%yConfR% w40 h22 vEditReintentos, %MaxReintentos%
-    Gui, Main:Add, UpDown, Range1-50, %MaxReintentos%
-    chkDebugVal := ModoDebug ? "Checked" : ""
-    Gui, Main:Add, CheckBox, x315 y%yConfR% vChkDebug %chkDebugVal% cWhite, Debug
-
-    Gui, Main:Add, Text, x385 y%yConfR%, Res:
-    Gui, Main:Add, Edit, x415 y%yConfR% w50 h22 vEditVentanaAncho, %VentanaAncho%
-    Gui, Main:Add, Text, x468 y%yConfR%, x
-    Gui, Main:Add, Edit, x480 y%yConfR% w50 h22 vEditVentanaAlto, %VentanaAlto%
-    chkAutoVal := AutoAjustar ? "Checked" : ""
-    Gui, Main:Add, CheckBox, x545 y%yConfR% vChkAutoAjustar %chkAutoVal% cWhite, Auto-aj
-
-    ; --- SECCIÓN: SCROLL ---
-    yScroll := 360
-    Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y%yScroll% w660 h80, SWIPE AUTOMATICO
-
-    ySR := yScroll + 25
-    Gui, Main:Font, s9 cSilver Normal
-    chkScrollVal := ScrollActivo ? "Checked" : ""
-    Gui, Main:Add, CheckBox, x25 y%ySR% vChkScroll %chkScrollVal% cWhite, Swipe
-    Gui, Main:Add, Text, x90 y%ySR%, X:
-    Gui, Main:Add, Edit, x105 y%ySR% w45 h22 vEditScrollX, %ScrollRelX%
-    Gui, Main:Add, Text, x158 y%ySR%, Y:
-    Gui, Main:Add, Edit, x172 y%ySR% w45 h22 vEditScrollY, %ScrollRelY%
-    Gui, Main:Add, Text, x225 y%ySR%, Fz:
-    Gui, Main:Add, Edit, x245 y%ySR% w35 h22 vEditScrollCant, %ScrollCantidad%
-    Gui, Main:Add, UpDown, Range1-20, %ScrollCantidad%
-    Gui, Main:Add, Text, x290 y%ySR%, Dl(ms):
-    Gui, Main:Add, Edit, x335 y%ySR% w50 h22 vEditScrollDelay, %ScrollDelay%
-    Gui, Main:Add, UpDown, Range100-3000, %ScrollDelay%
-
-    scrollPasoIndice := ScrollEnPaso + 1
-    Gui, Main:Add, Text, x395 y%ySR%, En:
-    Gui, Main:Add, DropDownList, x415 y%ySR% w140 vDDLScrollPaso Choose%scrollPasoIndice%, Todos|Paso 1: Nivel|Paso 2: Auto|Paso 3: Iniciar
-
-    ySR2 := ySR + 28
     Gui, Main:Font, s9 cWhite Normal
-    Gui, Main:Add, Button, x25 y%ySR2% w180 h22 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
-    Gui, Main:Add, Button, x215 y%ySR2% w180 h22 gProbarScroll, Probar Swipe
+    Gui, Main:Add, Button, x25 y575 w140 h25 gIniciarBot, INICIAR (F12)
+    Gui, Main:Add, Button, x175 y575 w140 h25 gPausarBot, PAUSAR (F12)
+    Gui, Main:Add, Button, x325 y575 w135 h25 gDetenerBot, DETENER (F11)
 
-    ; --- SECCIÓN: ADB ---
-    yADB := 450
+    ; --- SECCIÓN: Estado ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y%yADB% w660 h55, ADB (CLICKS DIRECTOS POR INSTANCIA)
+    Gui, Main:Add, GroupBox, x10 y620 w460 h50, ESTADO
 
-    yAR := yADB + 22
-    Gui, Main:Font, s9 cSilver Normal
-    chkADBVal := ADB_Habilitado ? "Checked" : ""
-    Gui, Main:Add, CheckBox, x25 y%yAR% vChkADB %chkADBVal% cWhite gToggleADB, ADB
-    Gui, Main:Add, Text, x80 y%yAR%, Ruta:
-    Gui, Main:Add, Edit, x110 y%yAR% w310 h22 vEditADBRuta, %ADB_Ruta%
-    Gui, Main:Add, Button, x425 y%yAR% w80 h22 gDetectarADBBtn, Detectar
-    Gui, Main:Add, Text, x515 y%yAR%, Puertos:
-    ; Puertos de cada instancia (separados por coma)
-    puertosStr := ""
-    Loop, %MAX_INST% {
-        p := Inst_ADB_Puerto[A_Index]
-        if (p = "" || p = 0)
-            p := 16384 + (A_Index - 1) * 32
-        if (A_Index > 1)
-            puertosStr .= ","
-        puertosStr .= p
-    }
-    Gui, Main:Add, Edit, x568 y%yAR% w95 h22 vEditADBPuertos, %puertosStr%
+    Gui, Main:Font, s11 c0x00FF88 Bold
+    Gui, Main:Add, Text, x25 y642 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
 
-    ; --- SECCIÓN: ESTADO (5 líneas) ---
-    yEst := 515
+    ; --- SECCIÓN: Log de Depuración ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y%yEst% w660 h130, ESTADO
+    Gui, Main:Add, GroupBox, x10 y680 w460 h220, LOG DE DEPURACIÓN
 
-    Gui, Main:Font, s9 c0x00FF88 Normal, Consolas
-    Loop, %MAX_INST% {
-        i := A_Index
-        yEstR := yEst + 20 + (i - 1) * 20
-        Gui, Main:Add, Text, x25 y%yEstR% w630 h18 vTextoEstado%i%, #%i%: IDLE
-    }
-
-    ; --- SECCIÓN: LOG ---
-    yLog := 655
-    Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y%yLog% w660 h200, LOG
-
-    yLogE := yLog + 22
     Gui, Main:Font, s8 c0x00FF88 Normal, Consolas
-    Gui, Main:Add, Edit, x25 y%yLogE% w635 h168 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
+    Gui, Main:Add, Edit, x25 y705 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
 
     ; --- Mostrar ventana ---
-    Gui, Main:Show, w680 h870, Game Bot - Multi-Instancia (5)
-
-    ; --- Crear canvas oculto para búsqueda de imágenes aislada ---
-    ; Este canvas recibe el contenido capturado con PrintWindow para que
-    ; ImageSearch busque SOLO los píxeles de la ventana objetivo,
-    ; eliminando contaminación cruzada entre instancias.
-    Gui, Canvas: +LastFound +AlwaysOnTop -Caption +ToolWindow +E0x08000000
-    CanvasHwnd := WinExist()
-    Gui, Canvas:Show, x0 y0 w1 h1 NA Hide
-    CanvasCreado := true
-
-    Log("=== Game Bot Multi-Instancia iniciado ===")
-    Log("F12: Iniciar/Pausar todos | F11: Detener todos | F10: Reload")
+    Gui, Main:Show, w480 h915, Game Bot - AutoHotkey v1.1
+    Log("=== Game Bot iniciado ===")
+    Log("Carpeta de imágenes: " . CarpetaImagenes)
+    Log("Presiona F12 para iniciar/pausar, F11 para detener")
+    Log("Primero selecciona la ventana del juego arriba")
+    VerificarImagenes()
 }
 
 ; ============================================================================
-; FUNCIÓN: Log con buffer (se flushea al final de cada tick)
+; FUNCIÓN: Escribir log en la GUI
 ; ============================================================================
 Log(mensaje) {
-    global ModoDebug, LogBuffer
+    global ModoDebug
     if (!ModoDebug)
         return
+
     FormatTime, hora,, HH:mm:ss
-    LogBuffer .= "[" . hora . "] " . mensaje . "`r`n"
-}
+    linea := "[" . hora . "] " . mensaje . "`r`n"
 
-LogI(i, mensaje) {
-    global ModoDebug, LogBuffer
-    if (!ModoDebug)
-        return
-    FormatTime, hora,, HH:mm:ss
-    LogBuffer .= "[" . hora . "][#" . i . "] " . mensaje . "`r`n"
-}
+    GuiControlGet, contenido, Main:, LogText
+    nuevo := contenido . linea
 
-FlushLog() {
-    global LogBuffer, LogCharCount
-    if (LogBuffer = "")
-        return
-
-    buf := LogBuffer
-    LogBuffer := ""
-    LogCharCount += StrLen(buf)
-
-    ; Obtener HWND del control de log
-    GuiControlGet, hLogCtrl, Main:Hwnd, LogText
-
-    ; Si el log es muy largo, truncar reseteando todo
-    if (LogCharCount > 30000) {
-        GuiControlGet, contenido, Main:, LogText
-        pos := InStr(contenido, "`n",, StrLen(contenido) // 2)
+    ; Limitar log a ~500 líneas para evitar consumo excesivo de memoria
+    if (StrLen(nuevo) > 30000) {
+        ; Cortar la primera mitad del log
+        pos := InStr(nuevo, "`n",, StrLen(nuevo) // 2)
         if (pos > 0)
-            contenido := "... (log recortado) ...`r`n" . SubStr(contenido, pos + 1)
-        GuiControl, Main:, LogText, %contenido%
-        LogCharCount := StrLen(contenido)
+            nuevo := "... (log recortado) ...`r`n" . SubStr(nuevo, pos + 1)
     }
 
-    ; Append-only: mover cursor al final y usar EM_REPLACESEL (más rápido)
-    SendMessage, 0x000E, 0, 0,, ahk_id %hLogCtrl%  ; WM_GETTEXTLENGTH
-    len := ErrorLevel
-    SendMessage, 0x00B1, %len%, %len%,, ahk_id %hLogCtrl%  ; EM_SETSEL (end,end)
-    VarSetCapacity(bufW, StrLen(buf) * 2 + 2, 0)
-    StrPut(buf, &bufW, "UTF-16")
-    SendMessage, 0x00C2, 0, &bufW,, ahk_id %hLogCtrl%  ; EM_REPLACESEL
+    GuiControl, Main:, LogText, %nuevo%
 
-    ; Auto-scroll al final
+    ; Auto-scroll al final (WM_VSCROLL + SB_BOTTOM)
+    GuiControlGet, hLogCtrl, Main:Hwnd, LogText
     SendMessage, 0x0115, 7, 0,, ahk_id %hLogCtrl%
 }
 
 ; ============================================================================
-; FUNCIÓN: Actualizar estado de una instancia en la GUI
+; FUNCIÓN: Actualizar barra de estado
 ; ============================================================================
-ActualizarEstadoInst(i) {
-    global Inst_Activo, Inst_Pausado, Inst_Estado, Inst_Ciclos, Inst_Ataques, Inst_Errores, Inst_RecuperacionTotal
+ActualizarEstado() {
+    global EstadoActual, ContadorCiclos, ContadorAtaques, ContadorErrores, BotActivo, BotPausado
 
-    if (!Inst_Activo[i])
-        estado := "IDLE"
-    else if (Inst_Pausado[i])
+    if (!BotActivo)
+        estado := "DETENIDO"
+    else if (BotPausado)
         estado := "PAUSADO"
     else
-        estado := Inst_Estado[i]
+        estado := EstadoActual
 
-    texto := "#" . i . ": " . estado . "  | C:" . Inst_Ciclos[i] . " A:" . Inst_Ataques[i] . " E:" . Inst_Errores[i] . " R:" . Inst_RecuperacionTotal[i]
-    GuiControl, Main:, TextoEstado%i%, %texto%
+    texto := "Estado: " . estado . "  |  Ciclos: " . ContadorCiclos . "  |  Ataques: " . ContadorAtaques . "  |  Errores: " . ContadorErrores
+    GuiControl, Main:, TextoEstado, %texto%
 }
 
 ; ============================================================================
-; FUNCIÓN: Obtener dimensiones de imagen (con cache)
+; FUNCIÓN: Verificar que las imágenes existan
 ; ============================================================================
-ObtenerDimensionesImagen(rutaImagen, ByRef imgW, ByRef imgH) {
-    imgW := 0
-    imgH := 0
-    hBitmap := LoadPicture(rutaImagen)
-    if (!hBitmap)
-        return
-    VarSetCapacity(bm, 32, 0)
-    DllCall("GetObject", "Ptr", hBitmap, "Int", 32, "Ptr", &bm)
-    imgW := NumGet(bm, 4, "Int")
-    imgH := NumGet(bm, 8, "Int")
-    DllCall("DeleteObject", "Ptr", hBitmap)
-}
+VerificarImagenes() {
+    global PasoImagenes, PasoNombres, TotalPasos, CarpetaImagenes
+    global IMG_VICTORIA, IMG_DERROTA, IMG_TAP, IMG_NEXT
+    global IMG_NUEVA_BATALLA, IMG_OK, IMG_EQUIS, IMG_EXPANSIONES
+    global BatallaImagenes, BatallaNombres, TotalBatallas, ExpansionActual, TotalExpansiones
+    global ExpansionImagenes, ExpansionNombres
 
-ObtenerDimensionesImagenCached(ruta, ByRef w, ByRef h) {
-    global ImgDimCache
-    if (ImgDimCache.HasKey(ruta)) {
-        w := ImgDimCache[ruta].w
-        h := ImgDimCache[ruta].h
-        return
-    }
-    ObtenerDimensionesImagen(ruta, w, h)
-    ImgDimCache[ruta] := {w: w, h: h}
-}
-
-; ============================================================================
-; FUNCIÓN: Buscar imagen en ventana por HWND
-; ============================================================================
-ArchivoExiste(ruta) {
-    global FileExistCache
-    if (FileExistCache.HasKey(ruta))
-        return FileExistCache[ruta]
-    existe := FileExist(ruta) ? true : false
-    FileExistCache[ruta] := existe
-    return existe
-}
-
-BuscarImagenEnVentana(hwnd, ByRef rutaImagen, ByRef foundX, ByRef foundY) {
-    global Variacion, CanvasHwnd, CanvasCreado
-
-    if !ArchivoExiste(rutaImagen)
-        return false
-
-    WinGetPos, wx, wy, ww, wh, ahk_id %hwnd%
-    if (ww = 0 || wh = 0)
-        return false
-
-    ; === MÉTODO AISLADO: PrintWindow + Canvas ===
-    ; Captura el contenido PROPIO de la ventana (aislado de otras ventanas)
-    ; y lo pinta en un canvas AlwaysOnTop para que ImageSearch lo encuentre.
-    ; Esto elimina la contaminación cruzada entre instancias.
-    if (CanvasCreado && CanvasHwnd) {
-        ; Posicionar y redimensionar canvas sobre la ventana objetivo
-        DllCall("SetWindowPos", "Ptr", CanvasHwnd, "Ptr", -1  ; HWND_TOPMOST
-            , "Int", wx, "Int", wy, "Int", ww, "Int", wh
-            , "UInt", 0x0040 | 0x0010)  ; SWP_SHOWWINDOW | SWP_NOACTIVATE
-        DllCall("ValidateRect", "Ptr", CanvasHwnd, "Ptr", 0)
-
-        ; Capturar contenido de la ventana con PrintWindow
-        hdcCanvas := DllCall("GetDC", "Ptr", CanvasHwnd, "Ptr")
-        hdcMem := DllCall("CreateCompatibleDC", "Ptr", hdcCanvas, "Ptr")
-        hBitmap := DllCall("CreateCompatibleBitmap", "Ptr", hdcCanvas, "Int", ww, "Int", wh, "Ptr")
-        hOld := DllCall("SelectObject", "Ptr", hdcMem, "Ptr", hBitmap, "Ptr")
-
-        ; PW_RENDERFULLCONTENT = 2 (captura DirectX/OpenGL)
-        printOK := DllCall("PrintWindow", "Ptr", hwnd, "Ptr", hdcMem, "UInt", 2)
-
-        if (printOK) {
-            ; Pintar contenido capturado en el canvas
-            DllCall("BitBlt", "Ptr", hdcCanvas, "Int", 0, "Int", 0, "Int", ww, "Int", wh
-                , "Ptr", hdcMem, "Int", 0, "Int", 0, "UInt", 0x00CC0020)  ; SRCCOPY
-            DllCall("ValidateRect", "Ptr", CanvasHwnd, "Ptr", 0)
+    faltantes := 0
+    Loop, %TotalPasos% {
+        if (A_Index = 1) {
+            Log("OK: Paso 1 -> SeleccionBatalla (dinamico, rotacion)")
+            continue
         }
-
-        ; Liberar recursos GDI
-        DllCall("SelectObject", "Ptr", hdcMem, "Ptr", hOld)
-        DllCall("DeleteDC", "Ptr", hdcMem)
-        DllCall("ReleaseDC", "Ptr", CanvasHwnd, "Ptr", hdcCanvas)
-        DllCall("DeleteObject", "Ptr", hBitmap)
-
-        if (printOK) {
-            ; Buscar en el canvas (tiene el contenido aislado de la ventana)
-            x1 := wx, y1 := wy, x2 := wx + ww, y2 := wy + wh
-            ImageSearch, foundX, foundY, %x1%, %y1%, %x2%, %y2%, *%Variacion% %rutaImagen%
-
-            ; Ocultar canvas después de buscar
-            DllCall("ShowWindow", "Ptr", CanvasHwnd, "Int", 0)  ; SW_HIDE
-
-            if (ErrorLevel = 0) {
-                ObtenerDimensionesImagenCached(rutaImagen, imgW, imgH)
-                if (imgW > 0 && imgH > 0) {
-                    foundX := foundX + (imgW // 2)
-                    foundY := foundY + (imgH // 2)
-                }
-                return true
-            }
-            return false
+        if (A_Index = 4) {
+            Log("OK: Paso 4 -> Resultado (escanea victoria/derrota)")
+            continue
         }
-
-        ; PrintWindow falló — ocultar canvas y usar fallback
-        DllCall("ShowWindow", "Ptr", CanvasHwnd, "Int", 0)
-    }
-
-    ; === FALLBACK: Búsqueda en pantalla con validación WindowFromPoint ===
-    x1 := wx, y1 := wy, x2 := wx + ww, y2 := wy + wh
-    ImageSearch, foundX, foundY, %x1%, %y1%, %x2%, %y2%, *%Variacion% %rutaImagen%
-
-    if (ErrorLevel = 0) {
-        ObtenerDimensionesImagenCached(rutaImagen, imgW, imgH)
-        if (imgW > 0 && imgH > 0) {
-            centroX := foundX + (imgW // 2)
-            centroY := foundY + (imgH // 2)
+        if (A_Index = 5) {
+            Log("OK: Paso 5 -> Tap hasta Next (dinamico)")
+            continue
+        }
+        if (A_Index = 6) {
+            Log("OK: Paso 6 -> NuevaBatalla (deteccion opcional)")
+            continue
+        }
+        if (A_Index = 8) {
+            Log("OK: Paso 8 -> SiguienteBatalla (rotacion)")
+            continue
+        }
+        if (A_Index = 10) {
+            Log("OK: Paso 10 -> CambiarExpansion (rotacion de expansiones)")
+            continue
+        }
+        if (A_Index = 11) {
+            Log("OK: Paso 11 -> SeleccionarExpansion (seleccion en menu)")
+            continue
+        }
+        ruta := PasoImagenes[A_Index]
+        nombre := PasoNombres[A_Index]
+        if !FileExist(ruta) {
+            Log("AVISO: Falta imagen paso " . A_Index . " -> " . nombre)
+            faltantes++
         } else {
-            centroX := foundX
-            centroY := foundY
-        }
-
-        ; Validar que el pixel pertenece a ESTA ventana
-        pt := (centroY << 32) | (centroX & 0xFFFFFFFF)
-        hwndEnPunto := DllCall("WindowFromPoint", "Int64", pt, "Ptr")
-        hwndRaiz := DllCall("GetAncestor", "Ptr", hwndEnPunto, "UInt", 2, "Ptr")
-        if (hwndRaiz + 0 != hwnd + 0) {
-            return false
-        }
-
-        foundX := centroX
-        foundY := centroY
-        return true
-    }
-    return false
-}
-
-; ============================================================================
-; FUNCIÓN: Auto-detectar ruta de ADB
-; ============================================================================
-DetectarADB() {
-    global ADB_Ruta
-
-    ; Intentar rutas comunes de MuMu Player 12
-    rutas := []
-    rutas.Push("C:\Program Files\Netease\MuMuPlayer-12.0\shell\adb.exe")
-    rutas.Push("D:\Program Files\Netease\MuMuPlayer-12.0\shell\adb.exe")
-    rutas.Push("C:\Program Files\Netease\MuMu Player 12\shell\adb.exe")
-    rutas.Push("D:\Program Files\Netease\MuMu Player 12\shell\adb.exe")
-    ; MuMu Player Pro
-    rutas.Push("C:\Program Files\Netease\MuMuPlayerPro-3.0\shell\adb.exe")
-    rutas.Push("D:\Program Files\Netease\MuMuPlayerPro-3.0\shell\adb.exe")
-    ; MuMu antiguo
-    rutas.Push("C:\Program Files\MuMu\emulator\nemu\vmonitor\bin\adb_server.exe")
-    rutas.Push("D:\Program Files\MuMu\emulator\nemu\vmonitor\bin\adb_server.exe")
-    ; ADB genérico en PATH
-    rutas.Push("adb.exe")
-
-    for _, ruta in rutas {
-        if (FileExist(ruta)) {
-            ADB_Ruta := ruta
-            return true
+            Log("OK: Paso " . A_Index . " -> " . nombre)
         }
     }
-    ; Intentar adb en PATH del sistema
-    RunWait, %ComSpec% /c "where adb.exe > ""%A_Temp%\adb_check.txt"" 2>NUL",, Hide
-    FileRead, adbPath, %A_Temp%\adb_check.txt
-    FileDelete, %A_Temp%\adb_check.txt
-    adbPath := Trim(adbPath, " `t`r`n")
-    if (adbPath != "" && FileExist(adbPath)) {
-        ADB_Ruta := adbPath
-        return true
+
+    ; Verificar imágenes de resultado
+    if !FileExist(IMG_VICTORIA) {
+        Log("AVISO: Falta imagen -> pantalla_victoria.bmp")
+        faltantes++
+    } else {
+        Log("OK: pantalla_victoria.bmp")
     }
-    return false
-}
+    if !FileExist(IMG_DERROTA) {
+        Log("AVISO: Falta imagen -> pantalla_derrota.bmp")
+        faltantes++
+    } else {
+        Log("OK: pantalla_derrota.bmp")
+    }
 
-; ============================================================================
-; FUNCIÓN: Conectar ADB a una instancia
-; ============================================================================
-ADB_Conectar(i) {
-    global
-    puerto := Inst_ADB_Puerto[i]
-    if (puerto = 0 || puerto = "")
-        return false
+    ; Verificar imágenes de tap y next
+    if !FileExist(IMG_TAP) {
+        Log("AVISO: Falta imagen -> boton_tap.bmp")
+        faltantes++
+    } else {
+        Log("OK: boton_tap.bmp")
+    }
+    if !FileExist(IMG_NEXT) {
+        Log("AVISO: Falta imagen -> boton_next.bmp")
+        faltantes++
+    } else {
+        Log("OK: boton_next.bmp")
+    }
 
-    device := "127.0.0.1:" . puerto
-    Inst_ADB_Device[i] := device
+    ; Verificar imágenes post-victoria
+    if !FileExist(IMG_NUEVA_BATALLA) {
+        Log("AVISO: Falta imagen -> pantalla_nueva_batalla.bmp")
+        faltantes++
+    } else {
+        Log("OK: pantalla_nueva_batalla.bmp")
+    }
+    if !FileExist(IMG_OK) {
+        Log("AVISO: Falta imagen -> boton_ok.bmp")
+        faltantes++
+    } else {
+        Log("OK: boton_ok.bmp")
+    }
 
-    ; Archivos temporales únicos por instancia
-    tmpConn := A_Temp . "\adb_conn_" . i . ".txt"
-    tmpSize := A_Temp . "\adb_size_" . i . ".txt"
+    ; Verificar imagen post-derrota (botón X)
+    if !FileExist(IMG_EQUIS) {
+        Log("AVISO: Falta imagen -> boton_equis.bmp")
+        faltantes++
+    } else {
+        Log("OK: boton_equis.bmp")
+    }
 
-    ; Conectar
-    cmd := """" . ADB_Ruta . """ connect " . device
-    RunWait, %ComSpec% /c "%cmd% > ""%tmpConn%"" 2>&1",, Hide
-    FileRead, salida, %tmpConn%
-    FileDelete, %tmpConn%
+    ; Verificar imagen de expansiones (paso 10)
+    if !FileExist(IMG_EXPANSIONES) {
+        Log("AVISO: Falta imagen -> boton_expansiones.bmp")
+        faltantes++
+    } else {
+        Log("OK: boton_expansiones.bmp")
+    }
 
-    if (InStr(salida, "connected") || InStr(salida, "already")) {
-        Inst_ADB_Conectado[i] := true
-
-        ; Obtener resolución interna del Android
-        cmdSize := """" . ADB_Ruta . """ -s " . device . " shell wm size"
-        RunWait, %ComSpec% /c "%cmdSize% > ""%tmpSize%"" 2>&1",, Hide
-        FileRead, salidaSize, %tmpSize%
-        FileDelete, %tmpSize%
-        ; Formato: "Physical size: 960x540"
-        if (RegExMatch(salidaSize, "(\d+)x(\d+)", m)) {
-            Inst_ADB_Res[i] := {w: m1 + 0, h: m2 + 0}
-            LogI(i, "ADB conectado: " . device . " (" . m1 . "x" . m2 . ")")
+    ; Verificar imágenes de rotación de batallas
+    Loop, %TotalBatallas% {
+        rutaBatalla := BatallaImagenes[A_Index]
+        nombreBatalla := BatallaNombres[A_Index]
+        if !FileExist(rutaBatalla) {
+            Log("AVISO: Falta imagen batalla " . A_Index . " -> " . nombreBatalla)
+            faltantes++
         } else {
-            Inst_ADB_Res[i] := {w: 0, h: 0}
-            LogI(i, "ADB conectado: " . device . " (resolución desconocida)")
+            Log("OK: Batalla " . A_Index . " -> " . nombreBatalla)
         }
-        return true
     }
 
-    Inst_ADB_Conectado[i] := false
-    LogI(i, "ADB error conectando a " . device . ": " . salida)
-    return false
+    ; Verificar imágenes de expansiones (para paso 11)
+    Loop, %TotalExpansiones% {
+        rutaExp := ExpansionImagenes[A_Index]
+        nombreExp := ExpansionNombres[A_Index]
+        if (rutaExp = "") {
+            Log("INFO: Expansion " . A_Index . " (" . nombreExp . ") sin imagen (placeholder)")
+        } else if !FileExist(rutaExp) {
+            Log("AVISO: Falta imagen expansion " . A_Index . " -> " . nombreExp)
+            faltantes++
+        } else {
+            Log("OK: Expansion " . A_Index . " -> " . nombreExp)
+        }
+    }
+
+    if (faltantes > 0)
+        Log("Faltan " . faltantes . " imágenes en: " . CarpetaImagenes)
+    else
+        Log("Todas las imágenes encontradas correctamente")
 }
 
 ; ============================================================================
-; FUNCIÓN: Ejecutar comando ADB (Run directo, sin cmd.exe, oculto)
+; FUNCIÓN: Cargar batallas de una expansión en los arrays activos
+; Pobla BatallaImagenes[] y BatallaNombres[] según la expansión indicada
+; Las expansiones sin datos definidos quedan con TotalBatallas := 0
 ; ============================================================================
-ADB_Cmd(i, comando) {
-    global ADB_Ruta
-    device := Inst_ADB_Device[i]
-    if (device = "" || ADB_Ruta = "")
+CargarBatallasExpansion(exp) {
+    global BatallaImagenes, BatallaNombres, TotalBatallas, BatallaActual, CarpetaImagenes
+
+    BatallaImagenes := {}
+    BatallaNombres := {}
+    BatallaActual := 1
+
+    if (exp = 1) {
+        TotalBatallas := 6
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_venasaur_ex.bmp"
+        BatallaNombres[1]  := "Venasaur EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_charizard_ex.bmp"
+        BatallaNombres[2]  := "Charizard EX"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_starmie_ex.bmp"
+        BatallaNombres[3]  := "Starmie EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_pikachu_ex.bmp"
+        BatallaNombres[4]  := "Pikachu EX"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_mewtwo_ex.bmp"
+        BatallaNombres[5]  := "Mewtwo EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_machamp_ex.bmp"
+        BatallaNombres[6]  := "Machamp EX"
+    }
+    else if (exp = 2) {
+        TotalBatallas := 8
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_venusaur_ex_mi.bmp"
+        BatallaNombres[1]  := "Venusaur EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_celebi_ex.bmp"
+        BatallaNombres[2]  := "Celebi EX"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_volcarona_ex.bmp"
+        BatallaNombres[3]  := "Volcarona EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_gyarados_ex.bmp"
+        BatallaNombres[4]  := "Gyarados EX"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_raichu_ex.bmp"
+        BatallaNombres[5]  := "Raichu EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_mew_ex.bmp"
+        BatallaNombres[6]  := "Mew EX"
+        BatallaImagenes[7] := CarpetaImagenes . "\boton_aerodactyl_ex.bmp"
+        BatallaNombres[7]  := "Aerodactyl EX"
+        BatallaImagenes[8] := CarpetaImagenes . "\boton_blue_deck.bmp"
+        BatallaNombres[8]  := "Blue Deck"
+    }
+    else if (exp = 3) {
+        TotalBatallas := 8
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_yanmega_ex.bmp"
+        BatallaNombres[1]  := "Yanmega EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_infernape_ex.bmp"
+        BatallaNombres[2]  := "Infernape EX"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_palkia_ex.bmp"
+        BatallaNombres[3]  := "Palkia EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_pachirisu_ex.bmp"
+        BatallaNombres[4]  := "Pachirisu EX"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_mismagius_ex.bmp"
+        BatallaNombres[5]  := "Mismagius EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_gallade_ex.bmp"
+        BatallaNombres[6]  := "Gallade EX"
+        BatallaImagenes[7] := CarpetaImagenes . "\boton_darkrai_ex.bmp"
+        BatallaNombres[7]  := "Darkrai EX"
+        BatallaImagenes[8] := CarpetaImagenes . "\boton_dialga_ex.bmp"
+        BatallaNombres[8]  := "Dialga EX"
+    }
+    else if (exp = 4) {
+        TotalBatallas := 7
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_leafeon_ex.bmp"
+        BatallaNombres[1]  := "Leafeon EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_arceus_infernape.bmp"
+        BatallaNombres[2]  := "Arceus Infernape"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_glaceon_ex.bmp"
+        BatallaNombres[3]  := "Glaceon EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_arceus_pachirisu.bmp"
+        BatallaNombres[4]  := "Arceus Pachirisu"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_garchomp_ex.bmp"
+        BatallaNombres[5]  := "Garchomp EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_arceus_weavile.bmp"
+        BatallaNombres[6]  := "Arceus Weavile"
+        BatallaImagenes[7] := CarpetaImagenes . "\boton_probopass_ex.bmp"
+        BatallaNombres[7]  := "Probopass EX"
+    }
+    else if (exp = 5) {
+        TotalBatallas := 9
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_beedrill_ex.bmp"
+        BatallaNombres[1]  := "Beedrill EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_charizard_arceus.bmp"
+        BatallaNombres[2]  := "Charizard Arceus"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_wugtrio_ex.bmp"
+        BatallaNombres[3]  := "Wugtrio EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_pikachu_magnezone.bmp"
+        BatallaNombres[4]  := "Pikachu Magnezone"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_giratina_ex.bmp"
+        BatallaNombres[5]  := "Giratina EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_lucario_ex.bmp"
+        BatallaNombres[6]  := "Lucario EX"
+        BatallaImagenes[7] := CarpetaImagenes . "\boton_paldean_clodsire_ex.bmp"
+        BatallaNombres[7]  := "Paldean Clodsire EX"
+        BatallaImagenes[8] := CarpetaImagenes . "\boton_tinkaton_ex.bmp"
+        BatallaNombres[8]  := "Tinkaton EX"
+        BatallaImagenes[9] := CarpetaImagenes . "\boton_bibarel_ex.bmp"
+        BatallaNombres[9]  := "Bibarel EX"
+    }
+    else if (exp = 6) {
+        TotalBatallas := 8
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_decidueye_ex.bmp"
+        BatallaNombres[1]  := "Decidueye EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_incineroar_ex.bmp"
+        BatallaNombres[2]  := "Incineroar EX"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_crabominable_ex.bmp"
+        BatallaNombres[3]  := "Crabominable EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_alolan_raichu_ex.bmp"
+        BatallaNombres[4]  := "Alolan Raichu EX"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_lunala_ex.bmp"
+        BatallaNombres[5]  := "Lunala EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_passimian_ex.bmp"
+        BatallaNombres[6]  := "Passimian EX"
+        BatallaImagenes[7] := CarpetaImagenes . "\boton_alolan_muk_ex.bmp"
+        BatallaNombres[7]  := "Alolan Muk EX"
+        BatallaImagenes[8] := CarpetaImagenes . "\boton_solgaleo_ex.bmp"
+        BatallaNombres[8]  := "Solgaleo EX"
+    }
+    else if (exp = 7) {
+        TotalBatallas := 4
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_buzzwole_ex.bmp"
+        BatallaNombres[1]  := "Buzzwole EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_tapu_koko_ex.bmp"
+        BatallaNombres[2]  := "Tapu Koko EX"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_lycanroc_ex.bmp"
+        BatallaNombres[3]  := "Lycanroc EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_guzzlord_ex.bmp"
+        BatallaNombres[4]  := "Guzzlord EX"
+    }
+    else if (exp = 8) {
+        TotalBatallas := 4
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_tsareena_ex.bmp"
+        BatallaNombres[1]  := "Tsareena EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_flareon_ex.bmp"
+        BatallaNombres[2]  := "Flareon EX"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_primarina_ex.bmp"
+        BatallaNombres[3]  := "Primarina EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_sylveon_ex.bmp"
+        BatallaNombres[4]  := "Sylveon EX"
+    }
+    else if (exp = 9) {
+        TotalBatallas := 8
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_shuckle_ex.bmp"
+        BatallaNombres[1]  := "Shuckle EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_lugia_ex.bmp"
+        BatallaNombres[2]  := "Lugia EX"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_kingdra_ex.bmp"
+        BatallaNombres[3]  := "Kingdra EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_lanturn_ex.bmp"
+        BatallaNombres[4]  := "Lanturn EX"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_espeon_ex.bmp"
+        BatallaNombres[5]  := "Espeon EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_donphan_ex.bmp"
+        BatallaNombres[6]  := "Donphan EX"
+        BatallaImagenes[7] := CarpetaImagenes . "\boton_umbreon_ex.bmp"
+        BatallaNombres[7]  := "Umbreon EX"
+        BatallaImagenes[8] := CarpetaImagenes . "\boton_skarmory_ex.bmp"
+        BatallaNombres[8]  := "Skarmory EX"
+    }
+    else if (exp = 10) {
+        TotalBatallas := 6
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_jumpluff_ex.bmp"
+        BatallaNombres[1]  := "Jumpluff EX"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_entei_ex.bmp"
+        BatallaNombres[2]  := "Entei EX"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_suicune_ex.bmp"
+        BatallaNombres[3]  := "Suicune EX"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_raikou_ex.bmp"
+        BatallaNombres[4]  := "Raikou EX"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_latios_ex.bmp"
+        BatallaNombres[5]  := "Latios EX"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_poliwrath_ex.bmp"
+        BatallaNombres[6]  := "Poliwrath EX"
+    }
+    else if (exp = 11) {
+        TotalBatallas := 9
+        BatallaImagenes[1] := CarpetaImagenes . "\boton_buzzwole_decidueye.bmp"
+        BatallaNombres[1]  := "Buzzwole Decidueye"
+        BatallaImagenes[2] := CarpetaImagenes . "\boton_charizard_moltres.bmp"
+        BatallaNombres[2]  := "Charizard Moltres"
+        BatallaImagenes[3] := CarpetaImagenes . "\boton_palkia_articuno.bmp"
+        BatallaNombres[3]  := "Palkia Articuno"
+        BatallaImagenes[4] := CarpetaImagenes . "\boton_pikachu_raichu.bmp"
+        BatallaNombres[4]  := "Pikachu Raichu"
+        BatallaImagenes[5] := CarpetaImagenes . "\boton_mewtwo_mew.bmp"
+        BatallaNombres[5]  := "Mewtwo Mew"
+        BatallaImagenes[6] := CarpetaImagenes . "\boton_lucario_donphan.bmp"
+        BatallaNombres[6]  := "Lucario Donphan"
+        BatallaImagenes[7] := CarpetaImagenes . "\boton_guzzlord_darkrai.bmp"
+        BatallaNombres[7]  := "Guzzlord Darkrai"
+        BatallaImagenes[8] := CarpetaImagenes . "\boton_solgaleo_dialga.bmp"
+        BatallaNombres[8]  := "Solgaleo Dialga"
+        BatallaImagenes[9] := CarpetaImagenes . "\boton_lugia_hooh.bmp"
+        BatallaNombres[9]  := "Lugia HoOh"
+    }
+    else {
+        TotalBatallas := 0
+    }
+}
+
+; ============================================================================
+; FUNCIÓN: Detectar ventana haciendo clic en ella
+; ============================================================================
+DetectarVentana:
+    Log(">>> Haz clic en la ventana del juego dentro de 5 segundos...")
+    MsgBox, 64, Detectar Ventana, Después de cerrar este mensaje tienes 5 segundos para hacer clic en la ventana del juego., 5
+
+    Sleep, 5000
+
+    ; Obtener ventana bajo el cursor
+    MouseGetPos,,, hwndBajoCursor
+    WinGetTitle, tituloDetectado, ahk_id %hwndBajoCursor%
+
+    if (tituloDetectado = "" || tituloDetectado = "Game Bot - AutoHotkey v1.1") {
+        Log("ERROR: No se detecto una ventana valida")
+        MsgBox, 16, Error, No se detectó una ventana válida.`nAsegúrate de hacer clic en la ventana del juego.
         return
-    Run, "%ADB_Ruta%" -s %device% shell %comando%,, Hide
-}
-
-; ============================================================================
-; FUNCIÓN: Obtener el offset del área cliente respecto a la ventana
-; La barra de título de MuMu hace que WinGetPos devuelva un tamaño mayor
-; que el área de renderizado Android. Necesitamos el offset para mapear
-; coordenadas de ventana a coordenadas Android correctamente.
-; ============================================================================
-GetClientOffset(hwnd, ByRef offsetX, ByRef offsetY, ByRef clientW, ByRef clientH) {
-    ; Obtener posición de la ventana completa
-    WinGetPos, wx, wy, ww, wh, ahk_id %hwnd%
-
-    ; Obtener tamaño del área cliente (sin barra de título ni bordes)
-    VarSetCapacity(rect, 16, 0)
-    DllCall("GetClientRect", "Ptr", hwnd, "Ptr", &rect)
-    clientW := NumGet(rect, 8, "Int")   ; right
-    clientH := NumGet(rect, 12, "Int")  ; bottom
-
-    ; Obtener posición del área cliente en coordenadas de pantalla
-    VarSetCapacity(pt, 8, 0)
-    NumPut(0, pt, 0, "Int")
-    NumPut(0, pt, 4, "Int")
-    DllCall("ClientToScreen", "Ptr", hwnd, "Ptr", &pt)
-    clientScreenX := NumGet(pt, 0, "Int")
-    clientScreenY := NumGet(pt, 4, "Int")
-
-    ; Offset = diferencia entre esquina superior de ventana y esquina del área cliente
-    offsetX := clientScreenX - wx
-    offsetY := clientScreenY - wy
-}
-
-; ============================================================================
-; FUNCIÓN: Tap ADB (coordenadas relativas a la ventana → Android)
-; Mapea usando el ÁREA CLIENTE (sin barra de título) para precisión
-; ============================================================================
-ADB_Tap(i, relX, relY) {
-    global
-    res := Inst_ADB_Res[i]
-    hwnd := Inst_Hwnd[i]
-
-    ; relX/relY son coordenadas relativas a la ventana completa (WinGetPos).
-    ; Necesitamos convertirlas a coordenadas Android.
-    ;
-    ; La ventana de MuMu puede tener:
-    ;   - Barra de título del OS (detectada por GetClientRect)
-    ;   - Toolbar interna de MuMu (NO detectada por GetClientRect, está dentro del cliente)
-    ;
-    ; Para calcular el offset total, comparamos el tamaño del cliente con la
-    ; resolución Android. Si clientH > res.h (ajustado por proporción), hay
-    ; espacio extra (toolbar interna) que debemos contabilizar.
-
-    GetClientOffset(hwnd, offsetX, offsetY, clientW, clientH)
-
-    ; Paso 1: Convertir de coordenadas de ventana a coordenadas de área cliente
-    cX := relX - offsetX
-    cY := relY - offsetY
-
-    if (clientW > 0 && clientH > 0 && res.w > 0 && res.h > 0) {
-        ; Paso 2: Detectar toolbar interna de MuMu
-        ; Si Android es 960x540 (16:9) y el cliente es 960x570, hay 30px de toolbar
-        ; Calcular la altura que el juego DEBERÍA ocupar según la proporción Android
-        juegoW := clientW
-        juegoH := Round(clientW * res.h / res.w)  ; altura proporcional al ancho
-
-        ; Si el cliente es más alto que el juego, hay toolbar interna
-        toolbarInterna := 0
-        if (clientH > juegoH)
-            toolbarInterna := clientH - juegoH
-
-        ; La posición dentro del área de juego (sin toolbar)
-        gameY := cY - toolbarInterna
-
-        adbX := Round(cX * res.w / juegoW)
-        adbY := Round(gameY * res.h / juegoH)
-    } else {
-        adbX := cX
-        adbY := cY
     }
 
-    if (adbX < 0)
-        adbX := 0
-    if (adbY < 0)
-        adbY := 0
-
-    ADB_Cmd(i, "input tap " . adbX . " " . adbY)
-}
+    VentanaObjetivo := tituloDetectado
+    GuiControl, Main:, EditVentana, %VentanaObjetivo%
+    Log("Ventana detectada: " . VentanaObjetivo)
+    MsgBox, 64, Ventana Detectada, Ventana seleccionada:`n%VentanaObjetivo%
+return
 
 ; ============================================================================
-; FUNCIÓN: Swipe ADB (no-bloqueante)
+; FUNCIÓN: Listar todas las ventanas abiertas para elegir una
 ; ============================================================================
-ADB_Swipe(i, relX, relYInicio, relYFin, duracionMs := 500) {
-    global
-    res := Inst_ADB_Res[i]
-    hwnd := Inst_Hwnd[i]
+ListarVentanas:
+    Log("Listando ventanas abiertas...")
 
-    ; Mismo cálculo que ADB_Tap: ventana → cliente → juego → Android
-    GetClientOffset(hwnd, offsetX, offsetY, clientW, clientH)
+    Gui, Lista:Destroy
+    Gui, Lista:Font, s9, Segoe UI
+    Gui, Lista:Add, Text,, Selecciona la ventana del juego:
+    Gui, Lista:Add, ListBox, w400 h300 vListaVentanas,
 
-    cX := relX - offsetX
-    cYI := relYInicio - offsetY
-    cYF := relYFin - offsetY
-
-    if (clientW > 0 && clientH > 0 && res.w > 0 && res.h > 0) {
-        juegoW := clientW
-        juegoH := Round(clientW * res.h / res.w)
-        toolbarInterna := 0
-        if (clientH > juegoH)
-            toolbarInterna := clientH - juegoH
-
-        gameYI := cYI - toolbarInterna
-        gameYF := cYF - toolbarInterna
-
-        adbX := Round(cX * res.w / juegoW)
-        adbYI := Round(gameYI * res.h / juegoH)
-        adbYF := Round(gameYF * res.h / juegoH)
-    } else {
-        adbX := cX
-        adbYI := cYI
-        adbYF := cYF
+    lista := ""
+    WinGet, ids, List
+    Loop, %ids% {
+        id := ids%A_Index%
+        WinGetTitle, titulo, ahk_id %id%
+        if (titulo != "" && titulo != "Game Bot - AutoHotkey v1.1" && titulo != "Program Manager") {
+            if (lista != "")
+                lista .= "|"
+            lista .= titulo
+        }
     }
 
-    if (adbX < 0)
-        adbX := 0
-    if (adbYI < 0)
-        adbYI := 0
-    if (adbYF < 0)
-        adbYF := 0
+    GuiControl, Lista:, ListaVentanas, |%lista%
+    Gui, Lista:Add, Button, w400 h30 gSeleccionarVentanaLista, SELECCIONAR ESTA VENTANA
+    Gui, Lista:Show,, Seleccionar Ventana
+    Log("Se encontraron ventanas disponibles")
+return
 
-    ADB_Cmd(i, "input swipe " . adbX . " " . adbYI . " " . adbX . " " . adbYF . " " . duracionMs)
-}
-
-; ============================================================================
-; FUNCIÓN: Hacer clic en ventana por HWND (con soporte ADB)
-; ============================================================================
-HacerClicEnVentana(hwnd, screenX, screenY, instancia := 0) {
-    global ADB_Habilitado
-    WinGetPos, wx, wy,,, ahk_id %hwnd%
-    relX := screenX - wx
-    relY := screenY - wy
-
-    ; Si ADB está habilitado y la instancia está conectada, usar ADB
-    if (ADB_Habilitado && instancia > 0 && Inst_ADB_Conectado[instancia]) {
-        ADB_Tap(instancia, relX, relY)
+SeleccionarVentanaLista:
+    Gui, Lista:Submit
+    if (ListaVentanas = "") {
+        MsgBox, 16, Error, No seleccionaste ninguna ventana.
         return
     }
+    VentanaObjetivo := ListaVentanas
+    GuiControl, Main:, EditVentana, %VentanaObjetivo%
+    Log("Ventana seleccionada de la lista: " . VentanaObjetivo)
+    MsgBox, 64, Ventana Seleccionada, Ventana seleccionada:`n%VentanaObjetivo%
+return
 
-    ; Fallback: ControlClick (funciona con MuMu sin ADB)
-    ControlClick, x%relX% y%relY%, ahk_id %hwnd%,, Left, 1, NA
-
+; ============================================================================
+; FUNCIÓN: Escribir el título de la ventana manualmente
+; ============================================================================
+EscribirVentana:
+    InputBox, tituloManual, Escribir Título de Ventana, Escribe el título exacto de la ventana del juego:,, 400, 150
     if (ErrorLevel) {
-        lParam := (relY << 16) | (relX & 0xFFFF)
-        PostMessage, 0x201, 0x0001, %lParam%,, ahk_id %hwnd%
-        Sleep, 10
-        PostMessage, 0x202, 0x0000, %lParam%,, ahk_id %hwnd%
-    }
-}
-
-; ============================================================================
-; FUNCIÓN: Iniciar swipe NO-BLOQUEANTE en ventana por HWND
-; En vez de hacer todo el scroll con Sleeps, programa la máquina de estados
-; para que ProcesarScroll() avance unos pasos cada tick del timer.
-; repeticiones: cuántas veces repetir el scroll (para scroll inverso grande)
-; imgPostScroll: ruta de imagen a buscar después del scroll ("" = ninguna)
-; ============================================================================
-IniciarScroll(i, hwnd, relX, relY, cantidad, repeticiones := 1, imgPostScroll := "", duracionSwipe := 0) {
-    global
-
-    if (!hwnd)
+        Log("Escritura manual cancelada")
         return
+    }
+    if (tituloManual = "") {
+        MsgBox, 16, Error, El título no puede estar vacío.
+        return
+    }
+    VentanaObjetivo := tituloManual
+    GuiControl, Main:, EditVentana, %VentanaObjetivo%
+    Log("Ventana escrita manualmente: " . VentanaObjetivo)
+return
 
-    Inst_ScrollRepetir[i] := repeticiones
-    Inst_ScrollCantidad[i] := cantidad
-    Inst_ScrollRelX[i] := relX
-    Inst_ScrollRelY[i] := relY
-    Inst_ScrollPostImg[i] := imgPostScroll
-
-    ; Si ADB está habilitado, usar ADB swipe
-    if (ADB_Habilitado && Inst_ADB_Conectado[i]) {
-        distancia := cantidad * 40
-        yInicio := relY + (distancia // 2)
-        yFin := relY - (distancia // 2)
-        if (yInicio < 10)
-            yInicio := 10
-        if (yFin < 10)
-            yFin := 10
-
-        ; Duración: usar la proporcionada o calcular proporcionalmente
-        if (duracionSwipe > 0) {
-            duracion := duracionSwipe
-        } else {
-            duracion := Abs(distancia) * 8
-        }
-        if (duracion < 100)
-            duracion := 100
-        if (duracion > 1500)
-            duracion := 1500
-
-        ; Ejecutar 1 solo swipe ahora
-        ADB_Swipe(i, relX, yInicio, yFin, duracion)
-
-        ; Calcular ticks de espera proporcionales a la duración del swipe
-        intervaloActual := RR_Intervalo > 0 ? RR_Intervalo : IntervaloLoop
-        ticksEspera := Ceil(duracion / intervaloActual) + 1
-
-        ; Si hay repeticiones, usar la máquina de estados para las restantes
-        if (repeticiones > 1) {
-            Inst_ScrollActivo[i] := true
-            Inst_ScrollFase[i] := 4  ; fase especial: ADB multi-swipe
-            Inst_ScrollHwndTarget[i] := hwnd
-            Inst_ScrollRepetir[i] := repeticiones - 1  ; ya hicimos 1
-            Inst_SkipTick[i] := ticksEspera
-        } else if (imgPostScroll != "") {
-            ; Solo 1 swipe + búsqueda post-scroll
-            Inst_ScrollActivo[i] := true
-            Inst_ScrollFase[i] := 3  ; ir a fase búsqueda
-            Inst_ScrollHwndTarget[i] := hwnd
-            Inst_SkipTick[i] := ticksEspera
-        } else {
-            ; Solo 1 swipe sin búsqueda: esperar a que termine
-            Inst_SkipTick[i] := ticksEspera
-        }
+; ============================================================================
+; FUNCIÓN: Verificar que la ventana exista y sea accesible
+; ============================================================================
+VerificarVentana:
+    if (VentanaObjetivo = "" || VentanaObjetivo = "(ninguna seleccionada)") {
+        MsgBox, 16, Error, Primero selecciona una ventana.
         return
     }
 
-    ; Fallback: scroll por mensajes Windows
-    _IniciarScrollUnico(i, hwnd, relX, relY, cantidad)
-}
-
-; Helper interno: prepara un solo scroll
-_IniciarScrollUnico(i, hwnd, relX, relY, cantidad) {
-    global
-
-    distancia := cantidad * 40
-    yInicio := relY + (distancia // 2)
-    yFin := relY - (distancia // 2)
-    if (yInicio < 10)
-        yInicio := 10
-    if (yFin < 10)
-        yFin := 10
-
-    pointVal := ((relY & 0xFFFFFFFF) << 32) | (relX & 0xFFFFFFFF)
-    hwndHijo := DllCall("RealChildWindowFromPoint", "Ptr", hwnd, "Int64", pointVal, "Ptr")
-
-    if (hwndHijo && hwndHijo != hwnd) {
-        hwndTarget := hwndHijo
-        VarSetCapacity(ptInicio, 8, 0)
-        NumPut(relX, ptInicio, 0, "Int")
-        NumPut(yInicio, ptInicio, 4, "Int")
-        DllCall("MapWindowPoints", "Ptr", hwnd, "Ptr", hwndHijo, "Ptr", &ptInicio, "UInt", 1)
-        childX := NumGet(ptInicio, 0, "Int")
-        childYInicio := NumGet(ptInicio, 4, "Int")
-
-        VarSetCapacity(ptFin, 8, 0)
-        NumPut(relX, ptFin, 0, "Int")
-        NumPut(yFin, ptFin, 4, "Int")
-        DllCall("MapWindowPoints", "Ptr", hwnd, "Ptr", hwndHijo, "Ptr", &ptFin, "UInt", 1)
-        childYFin := NumGet(ptFin, 4, "Int")
-    } else {
-        hwndTarget := hwnd
-        childX := relX
-        childYInicio := yInicio
-        childYFin := yFin
+    ; Verificar si existe
+    IfWinExist, %VentanaObjetivo%
+    {
+        WinGetPos, wx, wy, ww, wh, %VentanaObjetivo%
+        WinGet, pid, PID, %VentanaObjetivo%
+        Log("VENTANA OK: '" . VentanaObjetivo . "' [PID:" . pid . "] Pos:" . wx . "," . wy . " Tamaño:" . ww . "x" . wh)
+        MsgBox, 64, Ventana Verificada, La ventana existe y es accesible.`n`nTítulo: %VentanaObjetivo%`nPID: %pid%`nPosición: %wx%`, %wy%`nTamaño: %ww% x %wh%
     }
-
-    totalDist := Abs(childYInicio - childYFin)
-    pasoSize := 8
-    pasos := totalDist // pasoSize
-    if (pasos < 1)
-        pasos := 1
-    direccion := (childYInicio > childYFin) ? -1 : 1
-
-    ; Enviar WM_LBUTTONDOWN (inicio del arrastre) - PostMessage no bloquea
-    lParamDown := ((childYInicio & 0xFFFF) << 16) | (childX & 0xFFFF)
-    PostMessage, 0x201, 0x0001, %lParamDown%,, ahk_id %hwndTarget%
-
-    ; Guardar estado para que ProcesarScroll avance
-    Inst_ScrollActivo[i] := true
-    Inst_ScrollHwndTarget[i] := hwndTarget
-    Inst_ScrollChildX[i] := childX
-    Inst_ScrollYActual[i] := childYInicio
-    Inst_ScrollYFin[i] := childYFin
-    Inst_ScrollDir[i] := direccion
-    Inst_ScrollPasoSize[i] := pasoSize
-    Inst_ScrollPasos[i] := pasos
-    Inst_ScrollFase[i] := 1  ; fase arrastrando
-}
-
-; ============================================================================
-; FUNCIÓN: Procesar scroll no-bloqueante (llamar desde el loop principal)
-; Avanza varios pasos de arrastre por tick sin Sleep. Retorna:
-;   0 = scroll aún en curso
-;   1 = scroll terminado (sin búsqueda post-scroll)
-;   2 = scroll terminado + imagen post-scroll encontrada
-;  -1 = scroll terminado + imagen post-scroll NO encontrada
-; ============================================================================
-ProcesarScroll(i) {
-    global
-
-    if (!Inst_ScrollActivo[i])
-        return 1
-
-    hwndTarget := Inst_ScrollHwndTarget[i]
-    childX := Inst_ScrollChildX[i]
-    fase := Inst_ScrollFase[i]
-
-    ; FASE 1: Avanzar arrastre (enviar varios WM_MOUSEMOVE por tick)
-    if (fase = 1) {
-        pasosRestantes := Inst_ScrollPasos[i]
-        pasoSize := Inst_ScrollPasoSize[i]
-        dir := Inst_ScrollDir[i]
-        yFin := Inst_ScrollYFin[i]
-
-        ; Enviar hasta 10 pasos de movimiento por tick (no bloqueante)
-        pasosPorTick := 10
-        if (pasosPorTick > pasosRestantes)
-            pasosPorTick := pasosRestantes
-
-        Loop, %pasosPorTick% {
-            Inst_ScrollYActual[i] := Inst_ScrollYActual[i] + (pasoSize * dir)
-            yActual := Inst_ScrollYActual[i]
-            if (dir = -1) {
-                if (yActual < yFin)
-                    yActual := yFin
-            } else {
-                if (yActual > yFin)
-                    yActual := yFin
-            }
-            Inst_ScrollYActual[i] := yActual
-            lParam := ((yActual & 0xFFFF) << 16) | (childX & 0xFFFF)
-            PostMessage, 0x200, 0x0001, %lParam%,, ahk_id %hwndTarget%
-        }
-
-        Inst_ScrollPasos[i] := pasosRestantes - pasosPorTick
-        if (Inst_ScrollPasos[i] <= 0)
-            Inst_ScrollFase[i] := 2  ; siguiente tick: soltar
-        return 0
+    else
+    {
+        Log("ERROR: La ventana '" . VentanaObjetivo . "' NO existe o no se encuentra")
+        MsgBox, 16, Error, La ventana no se encontró.`nAsegúrate de que el juego esté abierto y el título sea exacto.
     }
-
-    ; FASE 2: Soltar (WM_LBUTTONUP)
-    if (fase = 2) {
-        yFin := Inst_ScrollYFin[i]
-        lParamUp := ((yFin & 0xFFFF) << 16) | (childX & 0xFFFF)
-        PostMessage, 0x202, 0x0000, %lParamUp%,, ahk_id %hwndTarget%
-
-        ; ¿Hay más repeticiones? (para scroll inverso grande)
-        Inst_ScrollRepetir[i] := Inst_ScrollRepetir[i] - 1
-        if (Inst_ScrollRepetir[i] > 0) {
-            ; Iniciar siguiente repetición
-            hwnd := Inst_Hwnd[i]
-            _IniciarScrollUnico(i, hwnd, Inst_ScrollRelX[i], Inst_ScrollRelY[i], Inst_ScrollCantidad[i])
-            return 0
-        }
-
-        ; ¿Hay imagen post-scroll para buscar?
-        if (Inst_ScrollPostImg[i] != "") {
-            Inst_ScrollFase[i] := 3  ; siguiente tick: buscar imagen
-            return 0
-        }
-
-        ; Terminado sin búsqueda
-        Inst_ScrollActivo[i] := false
-        Inst_ScrollFase[i] := 0
-        return 1
-    }
-
-    ; FASE 3: Buscar imagen post-scroll
-    if (fase = 3) {
-        Inst_ScrollActivo[i] := false
-        Inst_ScrollFase[i] := 0
-
-        hwnd := Inst_Hwnd[i]
-        imgBuscar := Inst_ScrollPostImg[i]
-        foundX := 0
-        foundY := 0
-        if (BuscarImagenEnVentana(hwnd, imgBuscar, foundX, foundY)) {
-            Inst_ScrollPostImg[i] := ""
-            return 2  ; encontrada - quien llama debe usar foundX/foundY de la instancia
-        }
-        Inst_ScrollPostImg[i] := ""
-        return -1  ; no encontrada
-    }
-
-    ; FASE 4: ADB multi-swipe (repeticiones restantes, 1 por tick)
-    if (fase = 4) {
-        ; Ejecutar 1 swipe ADB
-        cantidad := Inst_ScrollCantidad[i]
-        relX := Inst_ScrollRelX[i]
-        relY := Inst_ScrollRelY[i]
-        distancia := cantidad * 40
-        yInicio := relY + (distancia // 2)
-        yFin := relY - (distancia // 2)
-        if (yInicio < 10)
-            yInicio := 10
-        if (yFin < 10)
-            yFin := 10
-
-        ; Duración proporcional a la distancia
-        duracion := Abs(distancia) * 8
-        if (duracion < 300)
-            duracion := 300
-        if (duracion > 1500)
-            duracion := 1500
-
-        ADB_Swipe(i, relX, yInicio, yFin, duracion)
-
-        ; Esperar proporcionalmente a la duración del swipe
-        intervaloActual := RR_Intervalo > 0 ? RR_Intervalo : IntervaloLoop
-        ticksEspera := Ceil(duracion / intervaloActual) + 1
-
-        Inst_ScrollRepetir[i] := Inst_ScrollRepetir[i] - 1
-        if (Inst_ScrollRepetir[i] <= 0) {
-            ; Todas las repeticiones hechas
-            imgPostScroll := Inst_ScrollPostImg[i]
-            if (imgPostScroll != "") {
-                Inst_ScrollFase[i] := 3  ; buscar imagen
-                Inst_SkipTick[i] := ticksEspera
-            } else {
-                Inst_ScrollActivo[i] := false
-                Inst_ScrollFase[i] := 0
-                return 1
-            }
-        } else {
-            Inst_SkipTick[i] := ticksEspera
-        }
-        return 0
-    }
-
-    ; Estado inválido - resetear
-    Inst_ScrollActivo[i] := false
-    Inst_ScrollFase[i] := 0
-    return 1
-}
-
-; ============================================================================
-; FUNCIÓN: Hacer swipe BLOQUEANTE (solo para pruebas de GUI / "Probar Swipe")
-; ============================================================================
-HacerScrollEnVentana(hwnd, relX, relY, cantidad) {
-    distancia := cantidad * 40
-    yInicio := relY + (distancia // 2)
-    yFin := relY - (distancia // 2)
-    if (yInicio < 10)
-        yInicio := 10
-    if (yFin < 10)
-        yFin := 10
-
-    if (!hwnd)
-        return
-
-    pointVal := ((relY & 0xFFFFFFFF) << 32) | (relX & 0xFFFFFFFF)
-    hwndHijo := DllCall("RealChildWindowFromPoint", "Ptr", hwnd, "Int64", pointVal, "Ptr")
-
-    if (hwndHijo && hwndHijo != hwnd) {
-        hwndTarget := hwndHijo
-        VarSetCapacity(ptInicio, 8, 0)
-        NumPut(relX, ptInicio, 0, "Int")
-        NumPut(yInicio, ptInicio, 4, "Int")
-        DllCall("MapWindowPoints", "Ptr", hwnd, "Ptr", hwndHijo, "Ptr", &ptInicio, "UInt", 1)
-        childX := NumGet(ptInicio, 0, "Int")
-        childYInicio := NumGet(ptInicio, 4, "Int")
-
-        VarSetCapacity(ptFin, 8, 0)
-        NumPut(relX, ptFin, 0, "Int")
-        NumPut(yFin, ptFin, 4, "Int")
-        DllCall("MapWindowPoints", "Ptr", hwnd, "Ptr", hwndHijo, "Ptr", &ptFin, "UInt", 1)
-        childYFin := NumGet(ptFin, 4, "Int")
-    } else {
-        hwndTarget := hwnd
-        childX := relX
-        childYInicio := yInicio
-        childYFin := yFin
-    }
-
-    lParamDown := ((childYInicio & 0xFFFF) << 16) | (childX & 0xFFFF)
-    PostMessage, 0x201, 0x0001, %lParamDown%,, ahk_id %hwndTarget%
-    Sleep, 50
-
-    totalDist := Abs(childYInicio - childYFin)
-    pasoSize := 8
-    pasos := totalDist // pasoSize
-    if (pasos < 1)
-        pasos := 1
-    direccion := (childYInicio > childYFin) ? -1 : 1
-
-    Loop, %pasos% {
-        yActual := childYInicio + (A_Index * pasoSize * direccion)
-        if (direccion = -1) {
-            if (yActual < childYFin)
-                yActual := childYFin
-        } else {
-            if (yActual > childYFin)
-                yActual := childYFin
-        }
-        lParam := ((yActual & 0xFFFF) << 16) | (childX & 0xFFFF)
-        PostMessage, 0x200, 0x0001, %lParam%,, ahk_id %hwndTarget%
-        Sleep, 15
-    }
-
-    Sleep, 30
-    lParamUp := ((childYFin & 0xFFFF) << 16) | (childX & 0xFFFF)
-    PostMessage, 0x202, 0x0000, %lParamUp%,, ahk_id %hwndTarget%
-    Sleep, 50
-}
+return
 
 ; ============================================================================
 ; HOTKEYS GLOBALES
 ; ============================================================================
 F12::
-    GoSub, IniciarTodos
+    if (!BotActivo)
+        GoSub, IniciarBot
+    else
+        GoSub, PausarBot
 return
 
 F11::
-    GoSub, DetenerTodos
+    GoSub, DetenerBot
 return
 
 F10::
@@ -1580,1447 +942,884 @@ F10::
 return
 
 ; ============================================================================
-; LABELS: Control GLOBAL (Iniciar/Pausar/Detener TODOS)
+; CONTROLES DEL BOT
 ; ============================================================================
-IniciarTodos:
-    LeerConfigGUI()
+IniciarBot:
+    ; Leer configuración de la GUI
+    GuiControlGet, EditVariacion, Main:
+    GuiControlGet, EditIntervalo, Main:
+    GuiControlGet, EditReintentos, Main:
+    GuiControlGet, ChkDebug, Main:
 
-    algunoIniciado := false
-    Loop, %MAX_INST% {
-        i := A_Index
-        if (Inst_Hwnd[i] = 0 || !WinExist("ahk_id " . Inst_Hwnd[i]))
-            continue
+    Variacion := EditVariacion
+    IntervaloLoop := RegExReplace(EditIntervalo, ",", "") + 0
+    MaxReintentos := EditReintentos
+    ModoDebug := ChkDebug
 
-        if (!Inst_Activo[i]) {
-            LeerDDLsInstancia(i)
-            AutoAjustarVentana(i)
-            ResetInstancia(i)
-            LogI(i, "=== INICIADO === Exp:" . Inst_Exp[i] . " Bat:" . Inst_Bat[i] . " (" . BatNom[Inst_Exp[i], Inst_Bat[i]] . ")")
-            algunoIniciado := true
-        } else if (Inst_Pausado[i]) {
-            Inst_Pausado[i] := false
-            LogI(i, "=== REANUDADO ===")
-            algunoIniciado := true
-        }
-        ActualizarEstadoInst(i)
-    }
+    ; Leer configuración de scroll
+    GuiControlGet, ChkScroll, Main:
+    GuiControlGet, EditScrollX, Main:
+    GuiControlGet, EditScrollY, Main:
+    GuiControlGet, EditScrollCant, Main:
+    GuiControlGet, EditScrollDelay, Main:
+    ScrollActivo := ChkScroll
+    ScrollRelX := RegExReplace(EditScrollX, ",", "") + 0
+    ScrollRelY := RegExReplace(EditScrollY, ",", "") + 0
+    ScrollCantidad := EditScrollCant
+    ScrollDelay := RegExReplace(EditScrollDelay, ",", "") + 0
 
-    ; Conectar ADB si está habilitado
-    if (ADB_Habilitado && algunoIniciado) {
-        Loop, %MAX_INST% {
-            if (Inst_Activo[A_Index] && !Inst_ADB_Conectado[A_Index])
-                ADB_Conectar(A_Index)
-        }
-    }
-
-    if (algunoIniciado) {
-        ; Round-robin: timer más rápido para que cada instancia sea atendida frecuentemente
-        activos := 0
-        Loop, %MAX_INST% {
-            if (Inst_Activo[A_Index] && !Inst_Pausado[A_Index])
-                activos := activos + 1
-        }
-        if (activos < 1)
-            activos := 1
-        rrIntervalo := IntervaloLoop // activos
-        if (rrIntervalo < 50)
-            rrIntervalo := 50
-        RR_Intervalo := rrIntervalo
-        SetTimer, LoopPrincipal, %rrIntervalo%
-        Log(">>> Timer round-robin activo cada " . rrIntervalo . "ms (" . activos . " instancias, base " . IntervaloLoop . "ms)")
-    } else {
-        Log("AVISO: No hay instancias con ventana asignada para iniciar")
-    }
-    FlushLog()
-return
-
-PausarTodos:
-    Loop, %MAX_INST% {
-        i := A_Index
-        if (Inst_Activo[i]) {
-            Inst_Pausado[i] := !Inst_Pausado[i]
-            if (Inst_Pausado[i])
-                LogI(i, "=== PAUSADO ===")
-            else
-                LogI(i, "=== REANUDADO ===")
-            ActualizarEstadoInst(i)
-        }
-    }
-    FlushLog()
-return
-
-DetenerTodos:
-    SetTimer, LoopPrincipal, Off
-    Loop, %MAX_INST% {
-        i := A_Index
-        if (Inst_Activo[i]) {
-            Inst_Activo[i] := false
-            Inst_Pausado[i] := false
-            Inst_Estado[i] := "IDLE"
-            LogI(i, "=== DETENIDO ===")
-            ActualizarEstadoInst(i)
-        }
-    }
-    Log(">>> Timer principal detenido")
-    FlushLog()
-return
-
-; ============================================================================
-; LABELS: Control PER-INSTANCIA (generados dinámicamente)
-; ============================================================================
-IniciarInst1:
-    IniciarInstancia(1)
-return
-IniciarInst2:
-    IniciarInstancia(2)
-return
-IniciarInst3:
-    IniciarInstancia(3)
-return
-IniciarInst4:
-    IniciarInstancia(4)
-return
-IniciarInst5:
-    IniciarInstancia(5)
-return
-
-PausarInst1:
-    PausarInstancia(1)
-return
-PausarInst2:
-    PausarInstancia(2)
-return
-PausarInst3:
-    PausarInstancia(3)
-return
-PausarInst4:
-    PausarInstancia(4)
-return
-PausarInst5:
-    PausarInstancia(5)
-return
-
-DetenerInst1:
-    DetenerInstancia(1)
-return
-DetenerInst2:
-    DetenerInstancia(2)
-return
-DetenerInst3:
-    DetenerInstancia(3)
-return
-DetenerInst4:
-    DetenerInstancia(4)
-return
-DetenerInst5:
-    DetenerInstancia(5)
-return
-
-; ============================================================================
-; FUNCIONES: Control per-instancia
-; ============================================================================
-
-; Helper: resetear todos los contadores de una instancia
-ResetInstancia(i) {
-    global
-    Inst_Activo[i] := true
-    Inst_Pausado[i] := false
-    Inst_Paso[i] := 1
-    Inst_Ciclos[i] := 0
-    Inst_Ataques[i] := 0
-    Inst_Errores[i] := 0
-    Inst_ErrCon[i] := 0
-    Inst_P1Int[i] := 0
-    Inst_P8Int[i] := 0
-    Inst_P10Int[i] := 0
-    Inst_P10Menu[i] := 0
-    Inst_P11Int[i] := 0
-    Inst_ResInt[i] := 0
-    Inst_TapInt[i] := 0
-    Inst_NBInt[i] := 0
-    Inst_RutaPN[i] := 1
-    Inst_Cooldown[i] := 0
-    Inst_SkipTick[i] := 0
-    Inst_LastExito[i] := A_TickCount
-    Inst_RecuperacionTotal[i] := 0
-    Inst_ScrollActivo[i] := false
-    Inst_ScrollFase[i] := 0
-    Inst_RecupFase[i] := 0
-}
-
-; Helper: leer expansión/batalla de los DDLs de una instancia
-LeerDDLsInstancia(i) {
-    global
-    GuiControlGet, tmpExp, Main:, DDLExp%i%
-    expNum := 1
-    Loop, %TotalExpansiones% {
-        if InStr(tmpExp, A_Index . ":") {
-            expNum := A_Index
-            break
-        }
-    }
-    Inst_Exp[i] := expNum
-
-    GuiControlGet, tmpBat, Main:, DDLBat%i%
-    batNum := RegExReplace(tmpBat, "[^0-9]", "") + 0
-    maxBat := BatCnt[expNum]
-    if (batNum < 1 || batNum > maxBat)
-        batNum := 1
-    Inst_Bat[i] := batNum
-}
-
-; Helper: auto-ajustar ventana si está habilitado
-AutoAjustarVentana(i) {
-    global
-    if (AutoAjustar && VentanaAncho >= 100 && VentanaAlto >= 100) {
-        hwnd := Inst_Hwnd[i]
-        WinGetPos, wx, wy, wwA, whA, ahk_id %hwnd%
-        if (wwA != VentanaAncho || whA != VentanaAlto) {
-            LogI(i, "Auto-ajustando ventana de " . wwA . "x" . whA . " a " . VentanaAncho . "x" . VentanaAlto)
-            WinMove, ahk_id %hwnd%,, wx, wy, %VentanaAncho%, %VentanaAlto%
-        }
-    }
-}
-
-; Helper: verificar si hay al menos una instancia activa
-HayInstanciaActiva() {
-    global
-    Loop, %MAX_INST% {
-        if (Inst_Activo[A_Index])
-            return true
-    }
-    return false
-}
-
-IniciarInstancia(i) {
-    global
-    LeerConfigGUI()
-
-    hwnd := Inst_Hwnd[i]
-    if (hwnd = 0 || !WinExist("ahk_id " . hwnd)) {
-        LogI(i, "ERROR: No hay ventana asignada o no existe")
-        FlushLog()
-        return
-    }
-
-    if (Inst_Activo[i] && Inst_Pausado[i]) {
-        Inst_Pausado[i] := false
-        LogI(i, "=== REANUDADO ===")
-        ActualizarEstadoInst(i)
-        FlushLog()
-        return
-    }
-
-    if (Inst_Activo[i])
-        return
-
-    LeerDDLsInstancia(i)
-    AutoAjustarVentana(i)
-    ResetInstancia(i)
-
-    ; Conectar ADB si está habilitado
-    if (ADB_Habilitado && !Inst_ADB_Conectado[i])
-        ADB_Conectar(i)
-
-    LogI(i, "=== INICIADO === Exp:" . Inst_Exp[i] . " Bat:" . Inst_Bat[i])
-    ActualizarEstadoInst(i)
-
-    if (HayInstanciaActiva()) {
-        activos := 0
-        Loop, %MAX_INST% {
-            if (Inst_Activo[A_Index] && !Inst_Pausado[A_Index])
-                activos := activos + 1
-        }
-        if (activos < 1)
-            activos := 1
-        rrIntervalo := IntervaloLoop // activos
-        if (rrIntervalo < 50)
-            rrIntervalo := 50
-        RR_Intervalo := rrIntervalo
-        SetTimer, LoopPrincipal, %rrIntervalo%
-    }
-    FlushLog()
-}
-
-PausarInstancia(i) {
-    global
-    if (!Inst_Activo[i])
-        return
-    Inst_Pausado[i] := !Inst_Pausado[i]
-    if (Inst_Pausado[i])
-        LogI(i, "=== PAUSADO ===")
-    else
-        LogI(i, "=== REANUDADO ===")
-    ActualizarEstadoInst(i)
-    FlushLog()
-}
-
-DetenerInstancia(i) {
-    global
-    if (!Inst_Activo[i])
-        return
-    Inst_Activo[i] := false
-    Inst_Pausado[i] := false
-    Inst_ScrollActivo[i] := false
-    Inst_ScrollFase[i] := 0
-    Inst_RecupFase[i] := 0
-    Inst_Estado[i] := "IDLE"
-    LogI(i, "=== DETENIDO ===")
-    ActualizarEstadoInst(i)
-
-    if (!HayInstanciaActiva())
-        SetTimer, LoopPrincipal, Off
-    FlushLog()
-}
-
-; ============================================================================
-; FUNCIÓN: Leer configuración compartida de la GUI
-; ============================================================================
-LeerConfigGUI() {
-    global Variacion, IntervaloLoop, MaxReintentos, ModoDebug
-    global VentanaAncho, VentanaAlto, AutoAjustar
-    global ScrollActivo, ScrollRelX, ScrollRelY, ScrollCantidad, ScrollDelay, ScrollEnPaso
-
-    GuiControlGet, tmpVariacion, Main:, EditVariacion
-    Variacion := RegExReplace(tmpVariacion, ",", "") + 0
-    GuiControlGet, tmpIntervalo, Main:, EditIntervalo
-    IntervaloLoop := RegExReplace(tmpIntervalo, ",", "") + 0
-    GuiControlGet, tmpReintentos, Main:, EditReintentos
-    MaxReintentos := RegExReplace(tmpReintentos, ",", "") + 0
-    GuiControlGet, tmpDebug, Main:, ChkDebug
-    ModoDebug := tmpDebug
-    GuiControlGet, tmpAncho, Main:, EditVentanaAncho
-    VentanaAncho := RegExReplace(tmpAncho, ",", "") + 0
-    GuiControlGet, tmpAlto, Main:, EditVentanaAlto
-    VentanaAlto := RegExReplace(tmpAlto, ",", "") + 0
-    GuiControlGet, tmpAutoAjustar, Main:, ChkAutoAjustar
-    AutoAjustar := tmpAutoAjustar
-
-    GuiControlGet, tmpScroll, Main:, ChkScroll
-    ScrollActivo := tmpScroll
-    GuiControlGet, tmpScrollX, Main:, EditScrollX
-    ScrollRelX := RegExReplace(tmpScrollX, ",", "") + 0
-    GuiControlGet, tmpScrollY, Main:, EditScrollY
-    ScrollRelY := RegExReplace(tmpScrollY, ",", "") + 0
-    GuiControlGet, tmpScrollCant, Main:, EditScrollCant
-    ScrollCantidad := RegExReplace(tmpScrollCant, ",", "") + 0
-    GuiControlGet, tmpScrollDelay, Main:, EditScrollDelay
-    ScrollDelay := RegExReplace(tmpScrollDelay, ",", "") + 0
-    GuiControlGet, tmpScrollPaso, Main:, DDLScrollPaso
+    ; Leer paso de scroll
+    GuiControlGet, DDLScrollPaso, Main:
     ScrollEnPaso := 0
     Loop, 3 {
-        if InStr(tmpScrollPaso, "Paso " . A_Index) {
+        if InStr(DDLScrollPaso, "Paso " . A_Index) {
             ScrollEnPaso := A_Index
             break
         }
     }
-}
+
+    ; Validar ventana
+    if (VentanaObjetivo = "" || VentanaObjetivo = "(ninguna seleccionada)") {
+        MsgBox, 16, Error, Primero debes seleccionar la ventana del juego.
+        Log("ERROR: No hay ventana seleccionada")
+        return
+    }
+
+    IfWinNotExist, %VentanaObjetivo%
+    {
+        MsgBox, 16, Error, La ventana '%VentanaObjetivo%' no existe.`nAbre el juego primero.
+        Log("ERROR: Ventana no encontrada al iniciar")
+        return
+    }
+
+    ; Auto-ajustar ventana si la opción está activa
+    GuiControlGet, ChkAutoAjustar, Main:
+    AutoAjustar := ChkAutoAjustar
+    if (AutoAjustar) {
+        GuiControlGet, EditVentanaAncho, Main:
+        GuiControlGet, EditVentanaAlto, Main:
+        VentanaAncho := RegExReplace(EditVentanaAncho, ",", "") + 0
+        VentanaAlto := RegExReplace(EditVentanaAlto, ",", "") + 0
+
+        if (VentanaAncho >= 100 && VentanaAlto >= 100) {
+            WinGetPos, wx, wy, wwActual, whActual, %VentanaObjetivo%
+            if (wwActual != VentanaAncho || whActual != VentanaAlto) {
+                Log("Auto-ajustando ventana de " . wwActual . "x" . whActual . " a " . VentanaAncho . "x" . VentanaAlto)
+                WinMove, %VentanaObjetivo%,, wx, wy, %VentanaAncho%, %VentanaAlto%
+                Sleep, 500
+                WinGetPos,,, wwNuevo, whNuevo, %VentanaObjetivo%
+                if (wwNuevo = VentanaAncho && whNuevo = VentanaAlto)
+                    Log("Ventana auto-ajustada correctamente a " . wwNuevo . "x" . whNuevo)
+                else
+                    Log("AVISO: Auto-ajuste parcial. Resultado: " . wwNuevo . "x" . whNuevo)
+            } else {
+                Log("Ventana ya tiene el tamano correcto: " . VentanaAncho . "x" . VentanaAlto)
+            }
+        }
+    }
+
+    ; Leer expansión y batalla seleccionadas
+    GuiControlGet, DDLExpansion, Main:
+    expSeleccionada := 1
+    Loop, %TotalExpansiones% {
+        if InStr(DDLExpansion, A_Index . ":") {
+            expSeleccionada := A_Index
+            break
+        }
+    }
+    ExpansionActual := expSeleccionada
+    CargarBatallasExpansion(ExpansionActual)
+
+    GuiControlGet, DDLBatalla, Main:
+    batallaSeleccionada := RegExReplace(DDLBatalla, "[^0-9]", "") + 0
+    if (batallaSeleccionada < 1 || batallaSeleccionada > TotalBatallas)
+        batallaSeleccionada := 1
+    BatallaActual := batallaSeleccionada
+
+    ; Leer paso inicial seleccionado
+    GuiControlGet, DDLPasoInicio, Main:
+    PasoInicioSeleccionado := 1
+    Loop, 11 {
+        if InStr(DDLPasoInicio, A_Index . ":") {
+            PasoInicioSeleccionado := A_Index
+            break
+        }
+    }
+
+    BotActivo := true
+    BotPausado := false
+    PasoActual := PasoInicioSeleccionado
+    EstadoActual := "Paso " . PasoActual
+    ContadorCiclos := 0
+    ContadorAtaques := 0
+    ContadorErrores := 0
+    ErroresConsecutivos := 0
+    ResultadoIntentos := 0
+    TapIntentos := 0
+    Paso1Intentos := 0
+    Paso8Intentos := 0
+    Paso10Intentos := 0
+    Paso11Intentos := 0
+    Log("=== BOT INICIADO ===")
+    Log("Ventana: " . VentanaObjetivo)
+    Log("Expansion: " . ExpansionActual . "/" . TotalExpansiones . " (" . ExpansionNombres[ExpansionActual] . ") | Batalla: " . BatallaActual . "/" . TotalBatallas . " (" . BatallaNombres[BatallaActual] . ")")
+    Log("Iniciando en paso " . PasoActual . ": " . PasoNombres[PasoActual])
+    Log("Variación: " . Variacion . " | Intervalo: " . IntervaloLoop . "ms | Reintentos: " . MaxReintentos)
+    if (ScrollActivo) {
+        pasoNombre := (ScrollEnPaso = 0) ? "Todos los ciclos" : "Paso " . ScrollEnPaso
+        Log("Scroll activo en (" . ScrollRelX . ", " . ScrollRelY . ") x" . ScrollCantidad . " clicks | " . pasoNombre)
+    } else
+        Log("Scroll desactivado")
+    ActualizarEstado()
+
+    ; Iniciar el loop principal
+    SetTimer, LoopPrincipal, %IntervaloLoop%
+return
+
+PausarBot:
+    if (!BotActivo)
+        return
+
+    BotPausado := !BotPausado
+    if (BotPausado) {
+        SetTimer, LoopPrincipal, Off
+        Log("=== BOT PAUSADO === (F12 para reanudar)")
+    } else {
+        SetTimer, LoopPrincipal, %IntervaloLoop%
+        Log("=== BOT REANUDADO ===")
+    }
+    ActualizarEstado()
+return
+
+DetenerBot:
+    BotActivo := false
+    BotPausado := false
+    EstadoActual := "IDLE"
+    ResultadoIntentos := 0
+    TapIntentos := 0
+    Paso10Intentos := 0
+    Paso11Intentos := 0
+    SetTimer, LoopPrincipal, Off
+    Log("=== BOT DETENIDO ===")
+    ActualizarEstado()
+return
 
 ; ============================================================================
-; LOOP PRINCIPAL: Round-robin — procesa 1 instancia por tick para paralelismo
+; LOOP PRINCIPAL DEL BOT
 ; ============================================================================
 LoopPrincipal:
-    ; Guardia de re-entrancia: si el tick anterior no terminó, saltar
-    ; (reemplaza Critical que bloqueaba TODOS los hilos incluyendo GUI y hotkeys)
-    static _loopEnProceso := false
-    if (_loopEnProceso)
+    Critical  ; Prevenir interrupciones durante la ejecución del ciclo
+
+    if (!BotActivo || BotPausado)
         return
-    _loopEnProceso := true
 
-    ; Decrementar cooldowns de TODAS las instancias cada tick
-    Loop, %MAX_INST% {
-        idx := A_Index
-        if (Inst_Activo[idx] && Inst_SkipTick[idx] > 0)
-            Inst_SkipTick[idx] := Inst_SkipTick[idx] - 1
+    ContadorCiclos++
+    ActualizarEstado()
+
+    ; Verificar que la ventana siga abierta
+    IfWinNotExist, %VentanaObjetivo%
+    {
+        Log("ERROR: La ventana del juego se cerró. Deteniendo bot.")
+        GoSub, DetenerBot
+        MsgBox, 16, Error, La ventana del juego se cerró.`nEl bot se ha detenido.
+        return
     }
 
-    ; Round-robin: buscar la siguiente instancia activa para procesar
-    intentosRR := 0
-    i := 0
-    Loop, %MAX_INST% {
-        RR_Inst := RR_Inst + 1
-        if (RR_Inst > MAX_INST)
-            RR_Inst := 1
-        intentosRR := intentosRR + 1
+    ; Obtener posición y tamaño de la ventana
+    WinGetPos, WinX, WinY, WinW, WinH, %VentanaObjetivo%
 
-        if (!Inst_Activo[RR_Inst] || Inst_Pausado[RR_Inst])
-            continue
-        if (Inst_SkipTick[RR_Inst] > 0)
-            continue
-
-        i := RR_Inst
-        break
+    if (WinW = 0 || WinH = 0) {
+        Log("AVISO: Ventana minimizada o sin tamaño. Esperando...")
+        return
     }
 
-    ; Si no hay instancia para procesar, solo flush y actualizar
-    if (i = 0) {
-        FlushLog()
-        Loop, %MAX_INST% {
-            if (Inst_Activo[A_Index])
-                ActualizarEstadoInst(A_Index)
+    ; ================================================================
+    ; FLUJO SECUENCIAL - Buscar y clicar el botón del paso actual
+    ; ================================================================
+
+    ; Protección de límites: si PasoActual se sale de rango, reiniciar
+    if (PasoActual < 1 || PasoActual > TotalPasos) {
+        Log("AVISO: PasoActual fuera de rango (" . PasoActual . "). Reiniciando a paso 1.")
+        PasoActual := 1
+        ErroresConsecutivos := 0
+    }
+
+    ; Paso 1 dinámico: siempre usa la batalla actual de la rotación
+    PasoImagenes[1] := BatallaImagenes[BatallaActual]
+    PasoNombres[1]  := BatallaNombres[BatallaActual]
+
+    nombreActual := PasoNombres[PasoActual]
+    EstadoActual := "Paso " . PasoActual . "/" . TotalPasos . ": " . nombreActual . " [Exp " . ExpansionActual . "]"
+    ActualizarEstado()
+
+    ; ================================================================
+    ; PASO 4 ESPECIAL: Escanear victoria O derrota
+    ; 15 intentos con 10 segundos entre cada uno (NO-BLOQUEANTE)
+    ; Cada tick del timer hace UN solo intento y retorna
+    ; ================================================================
+    if (PasoActual = 4) {
+        ResultadoIntentos++
+
+        ; Primera vez: cambiar timer a 3s y logear
+        if (ResultadoIntentos = 1) {
+            Log("Paso 4: Buscando resultado de batalla (40 intentos, 3s entre cada uno)...")
+            SetTimer, LoopPrincipal, 3000
         }
-        goto, _LoopFin
-    }
 
-    ; Verificar que la ventana sigue existiendo
-    hwnd := Inst_Hwnd[i]
-    if (!WinExist("ahk_id " . hwnd)) {
-        LogI(i, "ERROR: Ventana cerrada. Deteniendo instancia.")
-        DetenerInstancia(i)
-        FlushLog()
-        goto, _LoopFin
-    }
+        EstadoActual := "Paso 4: Esperando resultado... (" . ResultadoIntentos . "/40)"
+        ActualizarEstado()
 
-    WinGetPos,,, ww, wh, ahk_id %hwnd%
-    if (ww = 0 || wh = 0) {
-        FlushLog()
-        goto, _LoopFin
-    }
-
-    ; Watchdog: si lleva demasiado tiempo sin éxito, forzar recuperación
-    tiempoSinExito := (A_TickCount - Inst_LastExito[i]) // 1000
-    if (tiempoSinExito >= WatchdogSegundos) {
-        LogI(i, "WATCHDOG: " . tiempoSinExito . "s sin éxito. Recuperación forzada desde P" . Inst_Paso[i])
-        Inst_ErrCon[i] := 0
-        Inst_P1Int[i] := 0
-        Inst_P8Int[i] := 0
-        Inst_P10Int[i] := 0
-        Inst_P10Menu[i] := 0
-        Inst_P11Int[i] := 0
-        Inst_ResInt[i] := 0
-        Inst_TapInt[i] := 0
-        Inst_NBInt[i] := 0
-        Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
-        Inst_ScrollActivo[i] := false
-        Inst_ScrollFase[i] := 0
-        Inst_Paso[i] := RecuperacionInteligente(i, hwnd, Inst_Paso[i])
-        Inst_LastExito[i] := A_TickCount
-        FlushLog()
-        ActualizarEstadoInst(i)
-        goto, _LoopFin
-    }
-
-    ; Si hay una recuperación en curso, procesarla (1 popup por tick)
-    if (Inst_RecupFase[i] > 0) {
-        ProcesarRecuperacion(i)
-        FlushLog()
-        ActualizarEstadoInst(i)
-        goto, _LoopFin
-    }
-
-    ; Si hay un scroll en curso, procesarlo en vez de la lógica normal
-    if (Inst_ScrollActivo[i]) {
-        resultado := ProcesarScroll(i)
-        if (resultado = 0) {
-            FlushLog()
-            ActualizarEstadoInst(i)
-            goto, _LoopFin
+        ; Buscar DERROTA (solo detectar, NO hacer clic)
+        if (BuscarImagenEnVentana(IMG_DERROTA, foundX, foundY)) {
+            Log("DERROTA detectada en intento " . ResultadoIntentos . "/40")
+            ErroresConsecutivos := 0
+            ResultadoIntentos := 0
+            TapIntentos := 0
+            RutaPostNext := 9
+            PasoActual := 5
+            Log(">>> Ruta derrota: avanzando a paso 5 (Tap hasta Next -> CerrarX -> SeleccionBatalla)")
+            SetTimer, LoopPrincipal, %IntervaloLoop%
+            ActualizarEstado()
+            return
         }
-        ; Scroll terminado: si encontró imagen post-scroll, actuar
-        if (resultado = 2) {
-            hwndS := Inst_Hwnd[i]
-            imgS := Inst_ScrollPostImg[i] ? Inst_ScrollPostImg[i] : ""
-            paso := Inst_Paso[i]
-            if (paso = 1 || paso = 8) {
-                exp := Inst_Exp[i]
-                bat := Inst_Bat[i]
-                imgBuscar := BatImg[exp, bat]
-                foundX := 0
-                foundY := 0
-                if (BuscarImagenEnVentana(hwndS, imgBuscar, foundX, foundY)) {
-                    nomBat := BatNom[exp, bat]
-                    LogI(i, "P" . paso . ": '" . nomBat . "' encontrado (post-scroll)")
-                    HacerClicEnVentana(hwndS, foundX, foundY, i)
-                    Inst_Ataques[i] := Inst_Ataques[i] + 1
-                    Inst_ErrCon[i] := 0
-                    if (paso = 1)
-                        Inst_P1Int[i] := 0
-                    else
-                        Inst_P8Int[i] := 0
-                    Inst_Paso[i] := 2
-                    ; Esperar más para que cargue la pantalla de batalla
-                    intervaloActual := RR_Intervalo > 0 ? RR_Intervalo : IntervaloLoop
-                    Inst_SkipTick[i] := Ceil(2000 / intervaloActual)
-                    Inst_LastExito[i] := A_TickCount
+
+        ; Buscar VICTORIA
+        if (BuscarImagenEnVentana(IMG_VICTORIA, foundX, foundY)) {
+            Log("VICTORIA detectada en intento " . ResultadoIntentos . "/40")
+            HacerClicEnVentana(foundX, foundY)
+            ErroresConsecutivos := 0
+            ContadorAtaques++
+            ResultadoIntentos := 0
+            TapIntentos := 0
+            RutaPostNext := 6
+            PasoActual := 5
+            Log(">>> Ruta victoria: avanzando a paso 5 (Tap hasta Next -> NuevaBatalla)")
+            SetTimer, LoopPrincipal, %IntervaloLoop%
+            ActualizarEstado()
+            return
+        }
+
+        ; Si se agotaron los 40 intentos sin resultado (120s)
+        if (ResultadoIntentos >= 40) {
+            Log("RECUPERACION: Sin resultado tras 40 intentos (120s). Reiniciando desde paso 1...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
+            ResultadoIntentos := 0
+            SetTimer, LoopPrincipal, %IntervaloLoop%
+        }
+
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASO 5 ESPECIAL: Tap dinámico hasta que aparezca Next
+    ; Busca Next primero; si no lo encuentra, busca Tap y lo clica
+    ; Funciona para victoria y derrota (RutaPostNext define el destino)
+    ; ================================================================
+    if (PasoActual = 5) {
+        TapIntentos++
+
+        if (TapIntentos = 1)
+            Log("Paso 5: Tap hasta Next (destino post-next: paso " . RutaPostNext . ")...")
+
+        EstadoActual := "Paso 5: Tap hasta Next... (" . TapIntentos . "/" . MaxTapIntentos . ")"
+        ActualizarEstado()
+
+        ; Primero buscar NEXT -> si aparece, clic y terminar
+        if (BuscarImagenEnVentana(IMG_NEXT, foundX, foundY)) {
+            Log("Next encontrado en intento " . TapIntentos . ". Haciendo clic...")
+            HacerClicEnVentana(foundX, foundY)
+            Sleep, 2500
+            ErroresConsecutivos := 0
+            TapIntentos := 0
+            PasoActual := RutaPostNext
+            Log(">>> Ciclo completado. Volviendo a paso " . RutaPostNext . ": " . PasoNombres[RutaPostNext])
+            ActualizarEstado()
+            return
+        }
+
+        ; Si no hay Next, buscar TAP -> si aparece, clic
+        if (BuscarImagenEnVentana(IMG_TAP, foundX, foundY)) {
+            Log("Tap encontrado en intento " . TapIntentos . ". Haciendo clic...")
+            HacerClicEnVentana(foundX, foundY)
+            Sleep, 2500
+            ActualizarEstado()
+            return
+        }
+
+        ; Ni tap ni next encontrados, esperar al siguiente tick
+        if (Mod(TapIntentos, 10) = 0)
+            Log("Paso 5: Ni Tap ni Next encontrados (" . TapIntentos . " intentos)")
+
+        ; Límite de intentos
+        if (TapIntentos >= MaxTapIntentos) {
+            Log("RECUPERACION: Sin Tap ni Next tras " . MaxTapIntentos . " intentos. Reiniciando desde paso 1...")
+            TapIntentos := 0
+            ErroresConsecutivos := 0
+            PasoActual := 1
+        }
+
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASO 6 ESPECIAL: Detectar pantalla "nueva batalla desbloqueada"
+    ; Si aparece -> paso 7 (OK). Si no tras N intentos -> paso 8 (CharizardEX)
+    ; ================================================================
+    if (PasoActual = 6) {
+        NuevaBatallaIntentos++
+
+        if (NuevaBatallaIntentos = 1)
+            Log("Paso 6: Buscando pantalla nueva batalla desbloqueada...")
+
+        EstadoActual := "Paso 6: NuevaBatalla... (" . NuevaBatallaIntentos . "/" . MaxNuevaBatallaIntentos . ")"
+        ActualizarEstado()
+
+        if (BuscarImagenEnVentana(IMG_NUEVA_BATALLA, foundX, foundY)) {
+            Log("Nueva batalla desbloqueada detectada en intento " . NuevaBatallaIntentos)
+            NuevaBatallaIntentos := 0
+            ErroresConsecutivos := 0
+            PasoActual := 7
+            Log(">>> Avanzando a paso 7: OK")
+            ActualizarEstado()
+            return
+        }
+
+        ; Si no aparece tras MaxNuevaBatallaIntentos, saltar directamente a CharizardEX
+        if (NuevaBatallaIntentos >= MaxNuevaBatallaIntentos) {
+            Log("Nueva batalla no encontrada tras " . MaxNuevaBatallaIntentos . " intentos. Saltando a SeleccionBatalla...")
+            NuevaBatallaIntentos := 0
+            ErroresConsecutivos := 0
+            PasoActual := 8
+            Log(">>> Saltando a paso 8: SeleccionBatalla")
+            ActualizarEstado()
+        }
+        return
+    }
+
+    ; ================================================================
+    ; PASO 8 ESPECIAL: Selección de siguiente batalla (rotación)
+    ; Busca la imagen de la siguiente batalla de la lista de rotación
+    ; Si no encuentra, hace scroll abajo y reintenta hasta encontrar
+    ; Tras clic, avanza BatallaActual y vuelve a paso 2 (Auto)
+    ; ================================================================
+    if (PasoActual = 8) {
+        ; Avanzar a siguiente batalla al entrar al paso 8
+        if (Paso8Intentos = 0) {
+            BatallaActual := BatallaActual + 1
+            if (BatallaActual > TotalBatallas) {
+                ; Última batalla de esta expansión completada -> cambiar expansión
+                Log(">>> Expansion " . ExpansionActual . " completada (" . TotalBatallas . " batallas)")
+
+                ; Avanzar a siguiente expansión (saltar las vacías)
+                ExpansionActual := ExpansionActual + 1
+                if (ExpansionActual > TotalExpansiones)
+                    ExpansionActual := 1
+                expansionesRevisadas := 0
+                CargarBatallasExpansion(ExpansionActual)
+                while (TotalBatallas = 0 && expansionesRevisadas < TotalExpansiones) {
+                    Log(">>> Expansion " . ExpansionActual . " sin batallas. Saltando...")
+                    ExpansionActual := ExpansionActual + 1
+                    if (ExpansionActual > TotalExpansiones)
+                        ExpansionActual := 1
+                    CargarBatallasExpansion(ExpansionActual)
+                    expansionesRevisadas++
+                }
+
+                if (TotalBatallas = 0) {
+                    Log("ERROR: Ninguna expansion tiene batallas definidas.")
+                    return
+                }
+
+                ; Ir a paso 10: buscar botón "expansiones"
+                Paso8Intentos := 0
+                PasoActual := 10
+                Log(">>> Avanzando a paso 10: CambiarExpansion (Exp " . ExpansionActual . ")")
+                ActualizarEstado()
+                return
+            }
+            Log(">>> Siguiente batalla: " . BatallaNombres[BatallaActual] . " (" . BatallaActual . "/" . TotalBatallas . ") [Exp " . ExpansionActual . "]")
+        }
+
+        imgBatalla := BatallaImagenes[BatallaActual]
+        nombreBatalla := BatallaNombres[BatallaActual]
+
+        if !FileExist(imgBatalla) {
+            Log("ERROR: Falta imagen para batalla " . BatallaActual . " (" . nombreBatalla . "): " . imgBatalla)
+            ContadorErrores++
+            return
+        }
+
+        Paso8Intentos++
+        EstadoActual := "Paso 8: Buscando " . nombreBatalla . "... (" . Paso8Intentos . ")"
+        ActualizarEstado()
+
+        ; Buscar la imagen de la batalla
+        if (BuscarImagenEnVentana(imgBatalla, foundX, foundY)) {
+            Log("Paso 8: '" . nombreBatalla . "' encontrado. Haciendo clic...")
+            HacerClicEnVentana(foundX, foundY)
+            ContadorAtaques++
+            ErroresConsecutivos := 0
+            Paso8Intentos := 0
+            Sleep, 2500
+
+            ; Volver al bucle: paso 2 (Auto)
+            PasoActual := 2
+            Log(">>> Volviendo a paso 2: Auto")
+            ActualizarEstado()
+            return
+        }
+
+        ; No encontrado: scroll hacia abajo en cada intento
+        Log("Paso 8: '" . nombreBatalla . "' no encontrado. Scroll abajo... (" . Paso8Intentos . ")")
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+        Sleep, %ScrollDelay%
+
+        ErroresConsecutivos++
+        ContadorErrores++
+        if (ErroresConsecutivos >= MaxErroresConsecutivos) {
+            Log("RECUPERACION: Atascado en paso 8. Reiniciando desde paso 1...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
+            Paso8Intentos := 0
+        }
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASO 9 ESPECIAL: Cerrar X después de derrota
+    ; Busca el botón X (equis) y lo pulsa, luego vuelve a paso 1
+    ; ================================================================
+    if (PasoActual = 9) {
+        EstadoActual := "Paso 9: Buscando botón X para cerrar..."
+        ActualizarEstado()
+
+        if (BuscarImagenEnVentana(IMG_EQUIS, foundX, foundY)) {
+            Log("Paso 9: Botón X encontrado. Haciendo clic...")
+            HacerClicEnVentana(foundX, foundY)
+            Sleep, 2500
+            ErroresConsecutivos := 0
+            PasoActual := 1
+            Log(">>> Cerrado. Volviendo a paso 1: SeleccionBatalla")
+            ActualizarEstado()
+            return
+        }
+
+        ; Si no se encuentra, contar error
+        ErroresConsecutivos++
+        ContadorErrores++
+        if (Mod(ErroresConsecutivos, 10) = 0)
+            Log("Paso 9: Botón X no encontrado (" . ErroresConsecutivos . " intentos)")
+        if (ErroresConsecutivos >= MaxErroresConsecutivos) {
+            Log("RECUPERACION: Botón X no encontrado tras " . MaxErroresConsecutivos . " intentos. Volviendo a paso 1...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
+        }
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASO 10 ESPECIAL: Cambiar expansión
+    ; Busca el botón "expansiones" y lo pulsa, luego va a paso 11
+    ; ================================================================
+    if (PasoActual = 10) {
+        Paso10Intentos++
+
+        if (Paso10Intentos = 1)
+            Log("Paso 10: Buscando botón 'Expansiones' para cambiar a expansión " . ExpansionActual . "...")
+
+        EstadoActual := "Paso 10: Buscando Expansiones... (" . Paso10Intentos . ")"
+        ActualizarEstado()
+
+        if (BuscarImagenEnVentana(IMG_EXPANSIONES, foundX, foundY)) {
+            Log("Paso 10: 'Expansiones' encontrado. Haciendo clic...")
+            HacerClicEnVentana(foundX, foundY)
+            Sleep, 2500
+            Paso10Intentos := 0
+            ErroresConsecutivos := 0
+
+            ; Avanzar a paso 11: seleccionar la expansión destino en el menú
+            Log(">>> Avanzando a paso 11: SeleccionarExpansion (" . ExpansionNombres[ExpansionActual] . ")")
+            PasoActual := 11
+            ActualizarEstado()
+            return
+        }
+
+        ; No encontrado: scroll y reintentar
+        Log("Paso 10: 'Expansiones' no encontrado. Scroll abajo... (" . Paso10Intentos . ")")
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+        Sleep, %ScrollDelay%
+
+        ErroresConsecutivos++
+        ContadorErrores++
+        if (ErroresConsecutivos >= MaxErroresConsecutivos) {
+            Log("RECUPERACION: Atascado en paso 10. Reiniciando desde paso 1...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
+            Paso10Intentos := 0
+        }
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASO 11 ESPECIAL: Seleccionar expansión destino en el menú
+    ; Busca la imagen de la expansión destino y hace tap
+    ; ================================================================
+    if (PasoActual = 11) {
+        Paso11Intentos++
+        nombreExp := ExpansionNombres[ExpansionActual]
+        imgExp := ExpansionImagenes[ExpansionActual]
+
+        if (imgExp = "" || !FileExist(imgExp)) {
+            Log("ERROR: Falta imagen para expansión " . ExpansionActual . " (" . nombreExp . ")")
+            Log(">>> Saltando a paso 1 sin seleccionar expansión")
+            Paso11Intentos := 0
+            PasoActual := 1
+            ActualizarEstado()
+            return
+        }
+
+        if (Paso11Intentos = 1)
+            Log("Paso 11: Buscando '" . nombreExp . "' en menú de expansiones...")
+
+        EstadoActual := "Paso 11: Buscando " . nombreExp . "... (" . Paso11Intentos . ")"
+        ActualizarEstado()
+
+        if (BuscarImagenEnVentana(imgExp, foundX, foundY)) {
+            Log("Paso 11: '" . nombreExp . "' encontrado. Haciendo clic...")
+            HacerClicEnVentana(foundX, foundY)
+            Sleep, 2500
+            Paso11Intentos := 0
+            ErroresConsecutivos := 0
+            PasoActual := 1
+            Log(">>> Expansión " . nombreExp . " seleccionada. Volviendo a paso 1.")
+            ActualizarEstado()
+            return
+        }
+
+        ; No encontrado: scroll y reintentar
+        Log("Paso 11: '" . nombreExp . "' no encontrado. Scroll abajo... (" . Paso11Intentos . ")")
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+        Sleep, %ScrollDelay%
+
+        ErroresConsecutivos++
+        ContadorErrores++
+        if (ErroresConsecutivos >= MaxErroresConsecutivos) {
+            Log("RECUPERACION: Atascado en paso 11. Reiniciando desde paso 1...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
+            Paso11Intentos := 0
+        }
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASO 1 ESPECIAL: Buscar batalla con scroll automático
+    ; Si no encuentra, hace scroll abajo y reintenta hasta encontrar
+    ; ================================================================
+    if (PasoActual = 1) {
+        imgBatalla1 := BatallaImagenes[BatallaActual]
+        nombreBatalla1 := BatallaNombres[BatallaActual]
+
+        if !FileExist(imgBatalla1) {
+            Log("ERROR: Falta imagen para batalla " . BatallaActual . " (" . nombreBatalla1 . "): " . imgBatalla1)
+            ContadorErrores++
+            return
+        }
+
+        Paso1Intentos++
+        EstadoActual := "Paso 1: Buscando " . nombreBatalla1 . "... (" . Paso1Intentos . ")"
+        ActualizarEstado()
+
+        ; Buscar la imagen de la batalla
+        if (BuscarImagenEnVentana(imgBatalla1, foundX, foundY)) {
+            Log("Paso 1: '" . nombreBatalla1 . "' encontrado en (" . foundX . ", " . foundY . ")")
+            HacerClicEnVentana(foundX, foundY)
+            ContadorAtaques++
+            ErroresConsecutivos := 0
+            Paso1Intentos := 0
+            Sleep, 2500
+            PasoActual := 2
+            Log(">>> Avanzando a paso 2: Auto")
+            ActualizarEstado()
+            return
+        }
+
+        ; No encontrado: scroll hacia abajo en cada intento
+        Log("Paso 1: '" . nombreBatalla1 . "' no encontrado. Scroll abajo... (" . Paso1Intentos . ")")
+        HacerScrollEnVentana(ScrollRelX, ScrollRelY, ScrollCantidad)
+        Sleep, %ScrollDelay%
+
+        ErroresConsecutivos++
+        ContadorErrores++
+        if (ErroresConsecutivos >= MaxErroresConsecutivos) {
+            Log("RECUPERACION: Atascado en paso 1. Reiniciando...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
+            Paso1Intentos := 0
+        }
+        ActualizarEstado()
+        return
+    }
+
+    ; ================================================================
+    ; PASOS NORMALES (2-3, 7, 9): Buscar imagen y clicar
+    ; ================================================================
+    imgActual := PasoImagenes[PasoActual]
+
+    ; Verificar que el archivo de imagen exista
+    if !FileExist(imgActual) {
+        Log("ERROR: Falta imagen para paso " . PasoActual . " (" . nombreActual . "): " . imgActual)
+        ContadorErrores++
+        return
+    }
+
+    ; Scroll inteligente: buscar imagen ANTES y DESPUÉS de cada scroll individual
+    ; (solo aplica a pasos normales donde se configura scroll)
+    imagenEncontrada := false
+    if (ScrollActivo && (ScrollEnPaso = 0 || ScrollEnPaso = PasoActual)) {
+        ; Buscar ANTES del primer scroll (por si ya está visible)
+        if (BuscarImagenEnVentana(imgActual, foundX, foundY)) {
+            imagenEncontrada := true
+        } else {
+            ; Hacer scroll de uno en uno, verificando después de cada uno
+            Loop, %ScrollCantidad% {
+                HacerScrollEnVentana(ScrollRelX, ScrollRelY, 1)
+                Sleep, %ScrollDelay%
+                if (BuscarImagenEnVentana(imgActual, foundX, foundY)) {
+                    imagenEncontrada := true
+                    break
                 }
             }
-            FlushLog()
-            ActualizarEstadoInst(i)
-            goto, _LoopFin
         }
-        ; resultado = 1 o -1: scroll terminado, continuar lógica normal en siguiente tick
-        FlushLog()
-        ActualizarEstadoInst(i)
-        goto, _LoopFin
+    } else {
+        ; Sin scroll: buscar directamente
+        if (BuscarImagenEnVentana(imgActual, foundX, foundY))
+            imagenEncontrada := true
     }
 
-    pasoAntes := Inst_Paso[i]
-    ProcesarInstancia(i)
-    ; Si el paso cambió, hubo progreso => resetear watchdog y contadores de error
-    if (Inst_Paso[i] != pasoAntes) {
-        Inst_LastExito[i] := A_TickCount
-        Inst_ErrCon[i] := 0
+    ; Procesar resultado de la búsqueda
+    if (imagenEncontrada) {
+        Log("Paso " . PasoActual . ": '" . nombreActual . "' encontrado en (" . foundX . ", " . foundY . ")")
+        HacerClicEnVentana(foundX, foundY)
+        ContadorAtaques++
+        ErroresConsecutivos := 0
+        Sleep, 2500
+
+        ; Avanzar al siguiente paso
+        PasoActual := PasoActual + 1
+        Log(">>> Avanzando a paso " . PasoActual . ": " . PasoNombres[PasoActual])
+    } else {
+        ErroresConsecutivos++
+        ContadorErrores++
+
+        ; Logear cada 10 intentos fallidos para no saturar
+        if (Mod(ErroresConsecutivos, 10) = 0) {
+            Log("Paso " . PasoActual . ": '" . nombreActual . "' no encontrado (" . ErroresConsecutivos . " intentos consecutivos)")
+        }
+
+        ; ANTI-ATASCO: si se superó el límite de errores consecutivos, reiniciar secuencia
+        if (ErroresConsecutivos >= MaxErroresConsecutivos) {
+            Log("RECUPERACION: Atascado en paso " . PasoActual . " (" . nombreActual . ") por " . ErroresConsecutivos . " ciclos. Reiniciando desde paso 1...")
+            PasoActual := 1
+            ErroresConsecutivos := 0
+            Log(">>> Reiniciado a paso 1: " . PasoNombres[1])
+        }
     }
 
-    ; Flush log y actualizar estado de esta instancia
-    FlushLog()
-    ActualizarEstadoInst(i)
-
-_LoopFin:
-    _loopEnProceso := false
+    ActualizarEstado()
 return
 
 ; ============================================================================
-; FUNCIÓN: Escanear popups inesperados (OK, X, TAP, NEXT, victoria, derrota)
-; Retorna: "" si no encontró nada, o el nombre del popup clickeado
-; NO modifica pasos ni estado - eso lo decide quien llama
+; FUNCIÓN: Obtener dimensiones de una imagen usando GDI (LoadPicture)
+; Funciona con cualquier formato: BMP, PNG, JPG, GIF, etc.
 ; ============================================================================
-ScanearPopups(hwnd, ByRef outX, ByRef outY) {
-    global IMG_OK, IMG_EQUIS, IMG_TAP, IMG_NEXT, IMG_VICTORIA, IMG_DERROTA
+ObtenerDimensionesImagen(rutaImagen, ByRef imgW, ByRef imgH) {
+    imgW := 0
+    imgH := 0
 
-    if (BuscarImagenEnVentana(hwnd, IMG_OK, outX, outY))
-        return "OK"
-    if (BuscarImagenEnVentana(hwnd, IMG_EQUIS, outX, outY))
-        return "X"
-    if (BuscarImagenEnVentana(hwnd, IMG_NEXT, outX, outY))
-        return "NEXT"
-    if (BuscarImagenEnVentana(hwnd, IMG_TAP, outX, outY))
-        return "TAP"
-    if (BuscarImagenEnVentana(hwnd, IMG_VICTORIA, outX, outY))
-        return "VICTORIA"
-    if (BuscarImagenEnVentana(hwnd, IMG_DERROTA, outX, outY))
-        return "DERROTA"
-    return ""
+    hBitmap := LoadPicture(rutaImagen)
+    if (!hBitmap)
+        return
+
+    VarSetCapacity(bm, 32, 0)
+    DllCall("GetObject", "Ptr", hBitmap, "Int", 32, "Ptr", &bm)
+    imgW := NumGet(bm, 4, "Int")
+    imgH := NumGet(bm, 8, "Int")
+    DllCall("DeleteObject", "Ptr", hBitmap)
 }
 
 ; ============================================================================
-; FUNCIÓN: Iniciar recuperación inteligente incremental
-; En vez de escanear 6 imágenes de golpe, activa modo recuperación.
-; ProcesarRecuperacion() se encarga de buscar 1 popup por tick.
+; FUNCIÓN: Buscar una imagen dentro de la ventana del juego
+; Retorna true si la encontró, false si no
+; foundX y foundY contienen las coordenadas del CENTRO de la imagen (pantalla)
 ; ============================================================================
-RecuperacionInteligente(i, hwnd, pasoOrigen) {
-    global
-    Inst_RecupFase[i] := 1
-    Inst_RecupOrigen[i] := pasoOrigen
-    LogI(i, "RECUP[P" . pasoOrigen . "]: Iniciando escaneo incremental...")
-    ; Retorna el paso actual como placeholder - ProcesarRecuperacion lo cambiará
-    return Inst_Paso[i]
-}
+BuscarImagenEnVentana(ByRef rutaImagen, ByRef foundX, ByRef foundY) {
+    global VentanaObjetivo, Variacion
 
-; ============================================================================
-; FUNCIÓN: Procesar recuperación incremental (1 búsqueda por tick)
-; Retorna true si la recuperación sigue en curso, false si terminó
-; ============================================================================
-ProcesarRecuperacion(i) {
-    global
-    fase := Inst_RecupFase[i]
-    if (fase = 0)
+    ; Verificar que el archivo de imagen existe
+    if !FileExist(rutaImagen) {
+        return false
+    }
+
+    ; Obtener posición de la ventana en la pantalla
+    WinGetPos, wx, wy, ww, wh, %VentanaObjetivo%
+
+    if (ww = 0 || wh = 0)
         return false
 
-    hwnd := Inst_Hwnd[i]
-    pasoOrigen := Inst_RecupOrigen[i]
-    foundX := 0
-    foundY := 0
+    ; Calcular coordenadas de búsqueda (área de la ventana)
+    x1 := wx
+    y1 := wy
+    x2 := wx + ww
+    y2 := wy + wh
 
-    ; Fase 1: Buscar OK
-    if (fase = 1) {
-        if (BuscarImagenEnVentana(hwnd, IMG_OK, foundX, foundY)) {
-            LogI(i, "RECUP[P" . pasoOrigen . "]: Popup OK detectado. Clic + ir a P8")
-            HacerClicEnVentana(hwnd, foundX, foundY, i)
-            Inst_SkipTick[i] := 2
-            Inst_Paso[i] := 8
-            Inst_RecupFase[i] := 0
-            return true
+    ; Buscar la imagen con tolerancia alta
+    ImageSearch, foundX, foundY, %x1%, %y1%, %x2%, %y2%, *%Variacion% %rutaImagen%
+
+    if (ErrorLevel = 0) {
+        ; Ajustar coordenadas al centro de la imagen encontrada
+        ObtenerDimensionesImagen(rutaImagen, imgW, imgH)
+        if (imgW > 0 && imgH > 0) {
+            foundX := foundX + (imgW // 2)
+            foundY := foundY + (imgH // 2)
         }
-        Inst_RecupFase[i] := 2
-        return true
-    }
-    ; Fase 2: Buscar X
-    if (fase = 2) {
-        if (BuscarImagenEnVentana(hwnd, IMG_EQUIS, foundX, foundY)) {
-            LogI(i, "RECUP[P" . pasoOrigen . "]: Popup X detectado. Clic + ir a P1")
-            HacerClicEnVentana(hwnd, foundX, foundY, i)
-            Inst_SkipTick[i] := 2
-            Inst_Paso[i] := 1
-            Inst_RecupFase[i] := 0
-            return true
-        }
-        Inst_RecupFase[i] := 3
-        return true
-    }
-    ; Fase 3: Buscar NEXT
-    if (fase = 3) {
-        if (BuscarImagenEnVentana(hwnd, IMG_NEXT, foundX, foundY)) {
-            LogI(i, "RECUP[P" . pasoOrigen . "]: NEXT detectado. Clic + ir a P6")
-            HacerClicEnVentana(hwnd, foundX, foundY, i)
-            Inst_SkipTick[i] := 2
-            Inst_RutaPN[i] := 6
-            Inst_Paso[i] := 6
-            Inst_RecupFase[i] := 0
-            return true
-        }
-        Inst_RecupFase[i] := 4
-        return true
-    }
-    ; Fase 4: Buscar TAP
-    if (fase = 4) {
-        if (BuscarImagenEnVentana(hwnd, IMG_TAP, foundX, foundY)) {
-            LogI(i, "RECUP[P" . pasoOrigen . "]: TAP detectado. Clic + ir a P5")
-            HacerClicEnVentana(hwnd, foundX, foundY, i)
-            Inst_SkipTick[i] := 2
-            Inst_TapInt[i] := 0
-            Inst_RutaPN[i] := 6
-            Inst_Paso[i] := 5
-            Inst_RecupFase[i] := 0
-            return true
-        }
-        Inst_RecupFase[i] := 5
-        return true
-    }
-    ; Fase 5: Buscar VICTORIA
-    ; Solo buscar victoria/derrota si el paso origen indica que SÍ hubo una batalla
-    ; (P4+ = durante/después de batalla). Si estamos en P1/P2/P3, NO buscar resultado
-    ; porque la batalla no se inició y podríamos detectar imágenes de otra ventana.
-    if (fase = 5) {
-        if (pasoOrigen >= 4) {
-            if (BuscarImagenEnVentana(hwnd, IMG_VICTORIA, foundX, foundY)) {
-                LogI(i, "RECUP[P" . pasoOrigen . "]: Victoria detectada. Ir a P4")
-                Inst_ResInt[i] := 0
-                Inst_Paso[i] := 4
-                Inst_RecupFase[i] := 0
-                return true
-            }
-        }
-        Inst_RecupFase[i] := 6
-        return true
-    }
-    ; Fase 6: Buscar DERROTA
-    if (fase = 6) {
-        if (pasoOrigen >= 4) {
-            if (BuscarImagenEnVentana(hwnd, IMG_DERROTA, foundX, foundY)) {
-                LogI(i, "RECUP[P" . pasoOrigen . "]: Derrota detectada. Ir a P4")
-                Inst_ResInt[i] := 0
-                Inst_Paso[i] := 4
-                Inst_RecupFase[i] := 0
-                return true
-            }
-        }
-        ; Nada encontrado: ir a P1 como último recurso
-        LogI(i, "RECUP[P" . pasoOrigen . "]: Nada detectado. Volviendo a P1")
-        Inst_Paso[i] := 1
-        Inst_RecupFase[i] := 0
-        return true
+        return true    ; Imagen encontrada
     }
 
-    Inst_RecupFase[i] := 0
-    return false
+    return false       ; No encontrada o error
 }
 
 ; ============================================================================
-; FUNCIÓN: Procesar un tick de una instancia (toda la lógica de 11 pasos)
+; FUNCIÓN: Hacer clic virtual en la ventana (sin mover el mouse real)
+; Las coordenadas recibidas son de pantalla; se convierten a coordenadas
+; relativas a la ventana para ControlClick
 ; ============================================================================
-ProcesarInstancia(i) {
-    global
+HacerClicEnVentana(screenX, screenY) {
+    global VentanaObjetivo
 
-    hwnd := Inst_Hwnd[i]
-    paso := Inst_Paso[i]
-    exp := Inst_Exp[i]
-    bat := Inst_Bat[i]
+    ; Obtener posición de la ventana
+    WinGetPos, wx, wy,,, %VentanaObjetivo%
 
-    Inst_Ciclos[i] := Inst_Ciclos[i] + 1
+    ; Convertir coordenadas de pantalla a coordenadas relativas a la ventana
+    relX := screenX - wx
+    relY := screenY - wy
 
-    ; Protección de límites
-    if (paso < 1 || paso > TotalPasos) {
-        LogI(i, "AVISO: Paso fuera de rango (" . paso . "). Reiniciando a 1.")
-        Inst_Paso[i] := 1
-        Inst_ErrCon[i] := 0
-        return
-    }
+    ; Hacer clic virtual usando ControlClick (no mueve el mouse real)
+    ControlClick, x%relX% y%relY%, %VentanaObjetivo%,, Left, 1, NA
 
-    nombrePaso := PasoNombres[paso]
-    Inst_Estado[i] := "P" . paso . "/" . TotalPasos . ": " . nombrePaso . " [E" . exp . "]"
-
-    ; ================================================================
-    ; PASO 4: Escanear victoria O derrota (alternando, 1 búsqueda por tick)
-    ; ================================================================
-    if (paso = 4) {
-        Inst_ResInt[i] := Inst_ResInt[i] + 1
-        resInt := Inst_ResInt[i]
-
-        if (resInt = 1)
-            LogI(i, "P4: Buscando resultado (40 intentos, 3s c/u)...")
-
-        Inst_Estado[i] := "P4: Resultado... (" . resInt . "/40)"
-
-        ; Alternar: ticks impares buscan DERROTA, pares buscan VICTORIA
-        if (Mod(resInt, 2) = 1) {
-            if (BuscarImagenEnVentana(hwnd, IMG_DERROTA, foundX, foundY)) {
-                LogI(i, "DERROTA en intento " . resInt)
-                Inst_ErrCon[i] := 0
-                Inst_ResInt[i] := 0
-                Inst_TapInt[i] := 0
-                Inst_RutaPN[i] := 9
-                Inst_Paso[i] := 5
-                LogI(i, ">>> Ruta derrota: P5 (Tap->Next->CerrarX)")
-                return
-            }
-        } else {
-            if (BuscarImagenEnVentana(hwnd, IMG_VICTORIA, foundX, foundY)) {
-                LogI(i, "VICTORIA en intento " . resInt)
-                HacerClicEnVentana(hwnd, foundX, foundY, i)
-                Inst_ErrCon[i] := 0
-                Inst_Ataques[i] := Inst_Ataques[i] + 1
-                Inst_ResInt[i] := 0
-                Inst_TapInt[i] := 0
-                Inst_RutaPN[i] := 6
-                Inst_Paso[i] := 5
-                Inst_SkipTick[i] := 2
-                LogI(i, ">>> Ruta victoria: P5 (Tap->Next->NuevaBatalla)")
-                return
-            }
-        }
-
-        ; Cooldown de ~3 segundos entre intentos (skip ticks)
-        intervaloActual := RR_Intervalo > 0 ? RR_Intervalo : IntervaloLoop
-        ticksPor3s := Ceil(3000 / intervaloActual)
-        if (ticksPor3s < 1)
-            ticksPor3s := 1
-        Inst_SkipTick[i] := ticksPor3s
-
-        if (resInt >= 40) {
-            LogI(i, "RECUPERACION: Sin resultado tras 40 intentos")
-            Inst_ResInt[i] := 0
-            Inst_ErrCon[i] := 0
-            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 4)
-        }
-        return
-    }
-
-    ; ================================================================
-    ; PASO 5: Tap dinámico hasta que aparezca Next
-    ; ================================================================
-    if (paso = 5) {
-        Inst_TapInt[i] := Inst_TapInt[i] + 1
-        tapInt := Inst_TapInt[i]
-
-        if (tapInt = 1)
-            LogI(i, "P5: Tap hasta Next (destino: P" . Inst_RutaPN[i] . ")...")
-
-        Inst_Estado[i] := "P5: Tap->Next (" . tapInt . "/" . MaxTapIntentos . ")"
-
-        ; Buscar AMBAS imágenes en cada tick — primero NEXT (avanza), luego TAP
-        if (BuscarImagenEnVentana(hwnd, IMG_NEXT, foundX, foundY)) {
-            LogI(i, "Next encontrado. Clic...")
-            HacerClicEnVentana(hwnd, foundX, foundY, i)
-            Inst_ErrCon[i] := 0
-            Inst_TapInt[i] := 0
-            Inst_Paso[i] := Inst_RutaPN[i]
-            Inst_SkipTick[i] := 2
-            LogI(i, ">>> Volviendo a P" . Inst_RutaPN[i])
-            return
-        }
-        if (BuscarImagenEnVentana(hwnd, IMG_TAP, foundX, foundY)) {
-            LogI(i, "Tap encontrado. Clic...")
-            HacerClicEnVentana(hwnd, foundX, foundY, i)
-            Inst_SkipTick[i] := 2
-            return
-        }
-
-        if (Mod(tapInt, 10) = 0)
-            LogI(i, "P5: Ni Tap ni Next (" . tapInt . " intentos)")
-
-        if (tapInt >= MaxTapIntentos) {
-            LogI(i, "RECUPERACION: Sin Tap/Next tras " . MaxTapIntentos)
-            Inst_TapInt[i] := 0
-            Inst_ErrCon[i] := 0
-            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 5)
-        }
-        return
-    }
-
-    ; ================================================================
-    ; PASO 6: Detectar pantalla "nueva batalla desbloqueada"
-    ; ================================================================
-    if (paso = 6) {
-        Inst_NBInt[i] := Inst_NBInt[i] + 1
-        nbInt := Inst_NBInt[i]
-
-        if (nbInt = 1)
-            LogI(i, "P6: Buscando nueva batalla desbloqueada...")
-
-        Inst_Estado[i] := "P6: NuevaBatalla (" . nbInt . "/" . MaxNuevaBatallaIntentos . ")"
-
-        if (BuscarImagenEnVentana(hwnd, IMG_NUEVA_BATALLA, foundX, foundY)) {
-            LogI(i, "Nueva batalla detectada en intento " . nbInt)
-            Inst_NBInt[i] := 0
-            Inst_ErrCon[i] := 0
-            Inst_Paso[i] := 7
-            return
-        }
-
-        if (nbInt >= MaxNuevaBatallaIntentos) {
-            LogI(i, "Nueva batalla no encontrada. Saltando a P8...")
-            Inst_NBInt[i] := 0
-            Inst_ErrCon[i] := 0
-            Inst_Paso[i] := 8
-        }
-        return
-    }
-
-    ; ================================================================
-    ; PASO 8: Selección de siguiente batalla (rotación)
-    ; ================================================================
-    if (paso = 8) {
-        if (Inst_P8Int[i] = 0) {
-            Inst_Bat[i] := Inst_Bat[i] + 1
-            maxBat := BatCnt[exp]
-            if (Inst_Bat[i] > maxBat) {
-                LogI(i, ">>> Exp " . exp . " completada (" . maxBat . " batallas)")
-
-                ; Avanzar a siguiente expansión
-                Inst_Exp[i] := Inst_Exp[i] + 1
-                if (Inst_Exp[i] > TotalExpansiones)
-                    Inst_Exp[i] := 1
-                revisadas := 0
-                while (BatCnt[Inst_Exp[i]] = 0 && revisadas < TotalExpansiones) {
-                    Inst_Exp[i] := Inst_Exp[i] + 1
-                    if (Inst_Exp[i] > TotalExpansiones)
-                        Inst_Exp[i] := 1
-                    revisadas++
-                }
-
-                if (BatCnt[Inst_Exp[i]] = 0) {
-                    LogI(i, "ERROR: Ninguna expansion tiene batallas")
-                    return
-                }
-
-                Inst_Bat[i] := 1
-                Inst_P8Int[i] := 0
-                Inst_P10Int[i] := 0
-                Inst_P10Menu[i] := 0
-                Inst_P11Int[i] := 0
-                Inst_Paso[i] := 10
-                LogI(i, ">>> Ir a P10: CambiarExpansion (Exp " . Inst_Exp[i] . ": " . ExpansionNombres[Inst_Exp[i]] . ")")
-                return
-            }
-            exp := Inst_Exp[i]
-            bat := Inst_Bat[i]
-            LogI(i, ">>> Siguiente batalla: " . BatNom[exp, bat] . " (" . bat . "/" . BatCnt[exp] . ")")
-        }
-
-        exp := Inst_Exp[i]
-        bat := Inst_Bat[i]
-        imgBat := BatImg[exp, bat]
-        nomBat := BatNom[exp, bat]
-
-        if (imgBat = "" || !ArchivoExiste(imgBat)) {
-            LogI(i, "ERROR: Falta imagen para batalla " . bat . " (" . nomBat . ")")
-            Inst_Errores[i] := Inst_Errores[i] + 1
-            return
-        }
-
-        Inst_P8Int[i] := Inst_P8Int[i] + 1
-        Inst_Estado[i] := "P8: Buscando " . nomBat . " (" . Inst_P8Int[i] . ")"
-
-        if (BuscarImagenEnVentana(hwnd, imgBat, foundX, foundY)) {
-            LogI(i, "P8: '" . nomBat . "' encontrado. Clic...")
-            HacerClicEnVentana(hwnd, foundX, foundY, i)
-            Inst_Ataques[i] := Inst_Ataques[i] + 1
-            Inst_ErrCon[i] := 0
-            Inst_P8Int[i] := 0
-            Inst_Paso[i] := 2
-            Inst_SkipTick[i] := 2
-            return
-        }
-
-        ; Cada 10 intentos, volver arriba con scroll inverso grande (no-bloqueante)
-        if (Mod(Inst_P8Int[i], 10) = 0) {
-            LogI(i, "P8: Scroll inverso para volver arriba (" . Inst_P8Int[i] . ")")
-            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2, 5)
-        } else {
-            ; Scroll normal con búsqueda post-scroll (no-bloqueante)
-            if (Mod(Inst_P8Int[i], 5) = 0)
-                LogI(i, "P8: '" . nomBat . "' no encontrado. Scroll... (" . Inst_P8Int[i] . ")")
-            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad, 1, imgBat)
-        }
-
-        Inst_ErrCon[i] := Inst_ErrCon[i] + 1
-        Inst_Errores[i] := Inst_Errores[i] + 1
-        if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "P8: No encontró batalla. Avanzando a siguiente...")
-            Inst_P8Int[i] := 0
-            Inst_ErrCon[i] := 0
-            ; En vez de recuperación, saltar esta batalla y probar la siguiente
-            Inst_Bat[i] := Inst_Bat[i] + 1
-            maxBat2 := BatCnt[Inst_Exp[i]]
-            if (Inst_Bat[i] > maxBat2) {
-                ; Todas las batallas de esta expansión agotadas, ir a cambiar expansión
-                Inst_Exp[i] := Inst_Exp[i] + 1
-                if (Inst_Exp[i] > TotalExpansiones)
-                    Inst_Exp[i] := 1
-                revisadas2 := 0
-                while (BatCnt[Inst_Exp[i]] = 0 && revisadas2 < TotalExpansiones) {
-                    Inst_Exp[i] := Inst_Exp[i] + 1
-                    if (Inst_Exp[i] > TotalExpansiones)
-                        Inst_Exp[i] := 1
-                    revisadas2++
-                }
-                Inst_Bat[i] := 1
-                Inst_P10Int[i] := 0
-                Inst_P10Menu[i] := 0
-                Inst_P11Int[i] := 0
-                Inst_Paso[i] := 10
-                LogI(i, ">>> Exp agotada. Ir a P10: CambiarExpansion (Exp " . Inst_Exp[i] . ": " . ExpansionNombres[Inst_Exp[i]] . ")")
-            } else {
-                LogI(i, ">>> Saltando a batalla " . Inst_Bat[i] . " de Exp " . Inst_Exp[i])
-                ; Quedarse en P8 para buscar la nueva batalla
-            }
-        }
-        return
-    }
-
-    ; ================================================================
-    ; PASO 9: Cerrar X después de derrota
-    ; ================================================================
-    if (paso = 9) {
-        Inst_Estado[i] := "P9: Buscando X..."
-
-        if (BuscarImagenEnVentana(hwnd, IMG_EQUIS, foundX, foundY)) {
-            LogI(i, "P9: X encontrado. Clic...")
-            HacerClicEnVentana(hwnd, foundX, foundY, i)
-            Inst_ErrCon[i] := 0
-            ; Después de derrota, avanzar a siguiente batalla (P8) en vez de repetir la misma
-            Inst_Paso[i] := 8
-            Inst_SkipTick[i] := 2
-            LogI(i, ">>> Post-derrota: Ir a P8 (siguiente batalla)")
-            return
-        }
-
-        Inst_ErrCon[i] := Inst_ErrCon[i] + 1
-        Inst_Errores[i] := Inst_Errores[i] + 1
-        if (Mod(Inst_ErrCon[i], 10) = 0)
-            LogI(i, "P9: X no encontrado (" . Inst_ErrCon[i] . " intentos)")
-        if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "RECUPERACION: X no encontrado")
-            Inst_ErrCon[i] := 0
-            Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
-            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, 9)
-        }
-        return
-    }
-
-    ; ================================================================
-    ; PASO 10: Cambiar expansión
-    ; Estrategia: Primero scroll arriba para ver la zona de expansiones,
-    ; luego buscar el botón de la expansión destino directamente.
-    ; Si existe un botón "Expansiones" intermedio, clickearlo primero.
-    ; ================================================================
-    if (paso = 10) {
-        Inst_P10Int[i] := Inst_P10Int[i] + 1
-
-        expDest := Inst_Exp[i]
-        nombreExpDest := ExpansionNombres[expDest]
-        imgExpDest := ExpansionImagenes[expDest]
-
-        if (Inst_P10Int[i] = 1)
-            LogI(i, "P10: Cambiando a expansión '" . nombreExpDest . "'...")
-
-        Inst_Estado[i] := "P10: -> " . nombreExpDest . " (" . Inst_P10Int[i] . ")"
-
-        ; === MODO 1: Menú abierto — solo buscar la expansión destino, NO scroll, NO re-click Expansiones ===
-        if (Inst_P10Menu[i] = 1) {
-            if (imgExpDest != "" && ArchivoExiste(imgExpDest)) {
-                if (BuscarImagenEnVentana(hwnd, imgExpDest, foundX, foundY)) {
-                    LogI(i, "P10: Expansión '" . nombreExpDest . "' encontrada en menú. Clic...")
-                    HacerClicEnVentana(hwnd, foundX, foundY, i)
-                    Inst_P10Int[i] := 0
-                    Inst_P10Menu[i] := 0
-                    Inst_ErrCon[i] := 0
-                    Inst_Paso[i] := 1
-                    Inst_SkipTick[i] := 2
-                    Inst_LastExito[i] := A_TickCount
-                    LogI(i, ">>> Expansión cambiada. Ir a P1.")
-                    return
-                }
-            }
-            ; Menú abierto pero expansión no encontrada aún
-            Inst_ErrCon[i] := Inst_ErrCon[i] + 1
-            if (Mod(Inst_ErrCon[i], 10) = 0)
-                LogI(i, "P10: Menú abierto, '" . nombreExpDest . "' no visible (" . Inst_ErrCon[i] . ")")
-            ; 10 chequeos seguros entre cada scroll — solo scroll ABAJO, nunca arriba
-            ; Cada 10 ticks sin encontrar: scroll rápido hacia abajo dentro del menú
-            if (Mod(Inst_ErrCon[i], 10) = 0 && Inst_ErrCon[i] > 0) {
-                GetClientOffset(hwnd, _ox, _oy, _cw, _ch)
-                ; Y al 70% del área de juego (dentro del popup, lejos del borde)
-                menuScrollY := _oy + (_ch * 70 // 100)
-                ; Scroll abajo rápido (duracion=200ms) con misma cantidad que batalla
-                IniciarScroll(i, hwnd, ScrollRelX, menuScrollY, ScrollCantidad, 1, "", 200)
-                LogI(i, "P10: Scroll abajo en menú (chequeo " . Inst_ErrCon[i] . ")")
-            }
-            ; Después de 80 intentos (8 scrolls con 10 chequeos cada uno), menú cerrado
-            if (Inst_ErrCon[i] >= 80) {
-                LogI(i, "P10: Expansión no encontrada en menú. Reintentando abrir menú...")
-                Inst_P10Menu[i] := 0
-                Inst_ErrCon[i] := 0
-            }
-            return
-        }
-
-        ; === MODO 0: Buscar y abrir el menú de expansiones ===
-
-        ; 1) Buscar directamente la expansión destino (puede ser un tab visible sin menú)
-        if (imgExpDest != "" && ArchivoExiste(imgExpDest)) {
-            if (BuscarImagenEnVentana(hwnd, imgExpDest, foundX, foundY)) {
-                LogI(i, "P10: Expansión '" . nombreExpDest . "' encontrada directamente. Clic...")
-                HacerClicEnVentana(hwnd, foundX, foundY, i)
-                Inst_P10Int[i] := 0
-                Inst_P10Menu[i] := 0
-                Inst_ErrCon[i] := 0
-                Inst_Paso[i] := 1
-                Inst_SkipTick[i] := 2
-                Inst_LastExito[i] := A_TickCount
-                LogI(i, ">>> Expansión cambiada. Ir a P1.")
-                return
-            }
-        }
-
-        ; 2) Buscar botón "Expansiones" para abrir el menú
-        if (BuscarImagenEnVentana(hwnd, IMG_EXPANSIONES, foundX, foundY)) {
-            LogI(i, "P10: Botón 'Expansiones' encontrado. Clic para abrir menú...")
-            HacerClicEnVentana(hwnd, foundX, foundY, i)
-            Inst_P10Menu[i] := 1  ; Marcar que el menú está abierto
-            Inst_ErrCon[i] := 0   ; Resetear contador para el modo menú
-            ; Esperar 3 segundos reales para que la animación del menú termine
-            intervaloActual := RR_Intervalo > 0 ? RR_Intervalo : IntervaloLoop
-            Inst_SkipTick[i] := Ceil(3000 / intervaloActual)
-            ; Quedarse en P10: el siguiente tick buscará la expansión en modo menú
-            return
-        }
-
-        ; 3) El botón Expansiones siempre está visible — no necesita scroll
-        ;    Si no se encontró ni la expansión ni el botón, solo reintentar
-        Inst_ErrCon[i] := Inst_ErrCon[i] + 1
-        if (Mod(Inst_ErrCon[i], 10) = 0)
-            LogI(i, "P10: Ni expansión ni botón encontrados (" . Inst_ErrCon[i] . " intentos)")
-
-        if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "P10: No pudo cambiar a '" . nombreExpDest . "'. Ir a P1.")
-            Inst_P10Int[i] := 0
-            Inst_P10Menu[i] := 0
-            Inst_ErrCon[i] := 0
-            Inst_Paso[i] := 1
-        }
-        return
-    }
-
-    ; ================================================================
-    ; PASO 11 ya no se usa — la lógica se unificó en P10.
-    ; Si por alguna razón se llega aquí, redirigir a P10.
-    ; ================================================================
-    if (paso = 11) {
-        Inst_Paso[i] := 10
-        Inst_P10Int[i] := 0
-        Inst_P10Menu[i] := 0
-        Inst_P11Int[i] := 0
-        Inst_ErrCon[i] := 0
-        return
-    }
-
-    ; ================================================================
-    ; PASO 1: Buscar batalla con scroll automático
-    ; ================================================================
-    if (paso = 1) {
-        exp := Inst_Exp[i]
-        bat := Inst_Bat[i]
-        imgBat1 := BatImg[exp, bat]
-        nomBat1 := BatNom[exp, bat]
-
-        if (imgBat1 = "" || !ArchivoExiste(imgBat1)) {
-            LogI(i, "ERROR: Falta imagen batalla " . bat . " (" . nomBat1 . ")")
-            Inst_Errores[i] := Inst_Errores[i] + 1
-            return
-        }
-
-        Inst_P1Int[i] := Inst_P1Int[i] + 1
-        Inst_Estado[i] := "P1: " . nomBat1 . " (" . Inst_P1Int[i] . ")"
-
-        ; Buscar imagen antes del scroll
-        if (BuscarImagenEnVentana(hwnd, imgBat1, foundX, foundY)) {
-            LogI(i, "P1: '" . nomBat1 . "' encontrado")
-            HacerClicEnVentana(hwnd, foundX, foundY, i)
-            Inst_Ataques[i] := Inst_Ataques[i] + 1
-            Inst_ErrCon[i] := 0
-            Inst_P1Int[i] := 0
-            Inst_Paso[i] := 2
-            ; Esperar más para que cargue la pantalla de batalla (Auto/Iniciar)
-            intervaloActual := RR_Intervalo > 0 ? RR_Intervalo : IntervaloLoop
-            Inst_SkipTick[i] := Ceil(2000 / intervaloActual)
-            return
-        }
-
-        ; Cada 10 intentos, volver arriba con scroll inverso grande (no-bloqueante)
-        if (Mod(Inst_P1Int[i], 10) = 0) {
-            LogI(i, "P1: Scroll inverso para volver arriba (" . Inst_P1Int[i] . ")")
-            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2, 5)
-        } else {
-            ; Scroll normal con búsqueda post-scroll (no-bloqueante)
-            if (Mod(Inst_P1Int[i], 5) = 0)
-                LogI(i, "P1: '" . nomBat1 . "' no encontrado. Scroll... (" . Inst_P1Int[i] . ")")
-            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad, 1, imgBat1)
-        }
-
-        Inst_ErrCon[i] := Inst_ErrCon[i] + 1
-        Inst_Errores[i] := Inst_Errores[i] + 1
-        if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "RECUPERACION: Atascado P1")
-            Inst_P1Int[i] := 0
-            Inst_ErrCon[i] := 0
-            Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
-            nuevoPaso := RecuperacionInteligente(i, hwnd, 1)
-            Inst_Paso[i] := nuevoPaso
-        }
-        return
-    }
-
-    ; ================================================================
-    ; PASOS NORMALES (2, 3, 7): Buscar imagen y clicar
-    ; ================================================================
-    imgActual := PasoImagenes[paso]
-
-    if (imgActual = "" || !ArchivoExiste(imgActual)) {
-        LogI(i, "ERROR: Falta imagen P" . paso . " (" . nombrePaso . ")")
-        Inst_Errores[i] := Inst_Errores[i] + 1
-        return
-    }
-
-    ; Buscar imagen (sin scroll bloqueante)
-    ; P2 (Auto) y P3 (Iniciar) NO deben hacer scroll: son botones fijos en pantalla
-    imagenEncontrada := false
-    if (BuscarImagenEnVentana(hwnd, imgActual, foundX, foundY)) {
-        imagenEncontrada := true
-    } else if (paso != 2 && paso != 3 && ScrollActivo && (ScrollEnPaso = 0 || ScrollEnPaso = paso)) {
-        ; No encontrada: scroll no-bloqueante y reintentar en el siguiente tick
-        IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
-    }
-
-    if (imagenEncontrada) {
-        LogI(i, "P" . paso . ": '" . nombrePaso . "' encontrado")
-        HacerClicEnVentana(hwnd, foundX, foundY, i)
-        Inst_Ataques[i] := Inst_Ataques[i] + 1
-        Inst_ErrCon[i] := 0
-        Inst_Paso[i] := paso + 1
-        Inst_SkipTick[i] := 2
-        LogI(i, ">>> Avanzando a P" . (paso + 1))
+    if (ErrorLevel) {
+        Log("AVISO: ControlClick falló en (" . relX . ", " . relY . "). Intentando método alternativo...")
+        ; Método alternativo: PostMessage para simular clic
+        lParam := (relY << 16) | (relX & 0xFFFF)
+        PostMessage, 0x201, 0x0001, %lParam%,, %VentanaObjetivo%  ; WM_LBUTTONDOWN
+        Sleep, 50
+        PostMessage, 0x202, 0x0000, %lParam%,, %VentanaObjetivo%  ; WM_LBUTTONUP
+        Log("Clic alternativo (PostMessage) enviado en (" . relX . ", " . relY . ")")
     } else {
-        Inst_ErrCon[i] := Inst_ErrCon[i] + 1
-        Inst_Errores[i] := Inst_Errores[i] + 1
-
-        ; P2/P3 (Auto/Iniciar): dar más tiempo entre reintentos (pantalla puede estar cargando)
-        if (paso = 2 || paso = 3) {
-            Inst_SkipTick[i] := 1
-        }
-
-        if (Mod(Inst_ErrCon[i], 10) = 0)
-            LogI(i, "P" . paso . ": '" . nombrePaso . "' no encontrado (" . Inst_ErrCon[i] . ")")
-
-        if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            Inst_ErrCon[i] := 0
-            Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
-            if (paso = 2 || paso = 3) {
-                ; Auto/Iniciar no encontrados: la pantalla de batalla no cargó.
-                ; Volver a P1 para reintentar (NO buscar victoria/derrota)
-                LogI(i, "P" . paso . ": '" . nombrePaso . "' no encontrado. Volviendo a P1.")
-                Inst_Paso[i] := 1
-            } else {
-                ; P7 u otros: usar recuperación normal
-                LogI(i, "RECUPERACION: Atascado P" . paso)
-                Inst_Paso[i] := RecuperacionInteligente(i, hwnd, paso)
-            }
-        }
+        Log("Clic enviado en (" . relX . ", " . relY . ") de la ventana")
     }
 }
 
 ; ============================================================================
-; LABELS: Detectar ventana per-instancia
+; FUNCIÓN: Hacer swipe virtual en la ventana para simular scroll
+; No mueve el mouse real. Encuentra la ventana hija del emulador (como
+; ControlClick hace internamente) y envía WM_LBUTTONDOWN/MOUSEMOVE/LBUTTONUP
+; directamente al HWND correcto via DllCall.
+; relX: coordenada X relativa a la ventana
+; relY: punto medio Y del swipe (relativo a la ventana)
+; cantidad: multiplicador de distancia (cada unidad = 40px de arrastre)
 ; ============================================================================
-DetectarVentana1:
-    DetectarVentanaInst(1)
-return
-DetectarVentana2:
-    DetectarVentanaInst(2)
-return
-DetectarVentana3:
-    DetectarVentanaInst(3)
-return
-DetectarVentana4:
-    DetectarVentanaInst(4)
-return
-DetectarVentana5:
-    DetectarVentanaInst(5)
-return
+HacerScrollEnVentana(relX, relY, cantidad) {
+    global VentanaObjetivo
 
-DetectarVentanaInst(i) {
-    global Inst_Hwnd, Inst_Titulo, MAX_INST, SelVentLista, SelVentInstancia
+    ; Calcular distancia total del swipe
+    distancia := cantidad * 40
+    yInicio := relY + (distancia // 2)   ; Punto inferior (donde empieza el dedo)
+    yFin := relY - (distancia // 2)      ; Punto superior (donde termina el dedo)
+    if (yFin < 10)
+        yFin := 10
 
-    ; Listar ventanas disponibles (excluir la propia GUI, sistema, y ya asignadas)
-    listaVentanas := ""
-    WinGet, ids, List
-    Loop, %ids% {
-        hwnd := ids%A_Index%
-        WinGetTitle, titulo, ahk_id %hwnd%
-        if (titulo = "" || titulo = "Program Manager" || titulo = "Game Bot - Multi-Instancia (5)")
-            continue
-        WinGet, estilo, Style, ahk_id %hwnd%
-        ; Solo ventanas visibles (WS_VISIBLE)
-        if !(estilo & 0x10000000)
-            continue
-        ; Filtrar ventanas child (auxiliares) y ventanas muy pequeñas
-        if (estilo & 0x40000000)  ; WS_CHILD
-            continue
-        WinGetPos,,, tmpW, tmpH, ahk_id %hwnd%
-        if (tmpW < 200 || tmpH < 200)
-            continue
-        ; Excluir ventanas ya asignadas a OTRAS instancias
-        yaAsignada := false
-        Loop, %MAX_INST% {
-            otroHwnd := Inst_Hwnd[A_Index]
-            if (A_Index != i && otroHwnd != 0 && otroHwnd != "" && otroHwnd = hwnd) {
-                yaAsignada := true
-                break
-            }
-        }
-        if (yaAsignada)
-            continue
-
-        ; Obtener PID y clase para distinguir ventanas con mismo título
-        WinGet, pid, PID, ahk_id %hwnd%
-        WinGetClass, clase, ahk_id %hwnd%
-        hwndNum := hwnd + 0
-        listaVentanas .= hwndNum . "|" . titulo . "|" . pid . "|" . clase . "`n"
-    }
-
-    if (listaVentanas = "") {
-        MsgBox, 16, Error, No se encontraron ventanas disponibles.`n`n(Las ventanas ya asignadas a otras instancias se excluyen)
+    ; Obtener HWND de la ventana padre
+    WinGet, hwndPadre, ID, %VentanaObjetivo%
+    if (!hwndPadre) {
+        Log("AVISO: No se encontró la ventana para swipe")
         return
     }
 
-    ; Mostrar GUI de selección
-    Gui, SelVent:Destroy
-    Gui, SelVent:Font, s9, Segoe UI
-    Gui, SelVent:Add, Text,, Selecciona la ventana para instancia #%i%:
-    Gui, SelVent:Add, ListBox, w500 h300 vSelVentLista
+    ; Encontrar la ventana hija en el punto del swipe (como hace ControlClick)
+    ; RealChildWindowFromPoint busca la ventana hija más profunda
+    ; POINT se pasa como Int64: low 32 bits = X, high 32 bits = Y
+    pointVal := ((relY & 0xFFFFFFFF) << 32) | (relX & 0xFFFFFFFF)
+    hwndHijo := DllCall("RealChildWindowFromPoint", "Ptr", hwndPadre, "Int64", pointVal, "Ptr")
 
-    Loop, Parse, listaVentanas, `n
-    {
-        if (A_LoopField = "")
-            continue
-        partes := StrSplit(A_LoopField, "|")
-        hwndItem := partes[1]
-        tituloItem := partes[2]
-        pidItem := partes[3]
-        claseItem := partes[4]
-        ; Mostrar título + PID + clase para distinguir ventanas de MuMu con mismo nombre
-        entrada := tituloItem . " (PID:" . pidItem . " " . claseItem . ") [" . hwndItem . "]"
-        GuiControl, SelVent:, SelVentLista, %entrada%
+    ; Determinar HWND destino y ajustar coordenadas
+    if (hwndHijo && hwndHijo != hwndPadre) {
+        hwndTarget := hwndHijo
+        ; Convertir coordenadas del padre al hijo usando MapWindowPoints
+        VarSetCapacity(ptInicio, 8, 0)
+        NumPut(relX, ptInicio, 0, "Int")
+        NumPut(yInicio, ptInicio, 4, "Int")
+        DllCall("MapWindowPoints", "Ptr", hwndPadre, "Ptr", hwndHijo, "Ptr", &ptInicio, "UInt", 1)
+        childX := NumGet(ptInicio, 0, "Int")
+        childYInicio := NumGet(ptInicio, 4, "Int")
+
+        VarSetCapacity(ptFin, 8, 0)
+        NumPut(relX, ptFin, 0, "Int")
+        NumPut(yFin, ptFin, 4, "Int")
+        DllCall("MapWindowPoints", "Ptr", hwndPadre, "Ptr", hwndHijo, "Ptr", &ptFin, "UInt", 1)
+        childYFin := NumGet(ptFin, 4, "Int")
+
+        metodo := "ChildWindow"
+    } else {
+        hwndTarget := hwndPadre
+        childX := relX
+        childYInicio := yInicio
+        childYFin := yFin
+        metodo := "ParentWindow"
     }
 
-    Gui, SelVent:Add, Button, w200 gSelVentOK, Seleccionar
-    Gui, SelVent:Show,, Detectar Ventana #%i%
+    ; Enviar WM_LBUTTONDOWN al HWND correcto (síncrono)
+    lParamDown := ((childYInicio & 0xFFFF) << 16) | (childX & 0xFFFF)
+    DllCall("SendMessageW", "Ptr", hwndTarget, "UInt", 0x201, "Ptr", 0x0001, "Ptr", lParamDown)
+    Sleep, 50
 
-    ; Guardar instancia actual para el callback
-    global SelVentInstancia := i
-    return
+    ; Movimiento gradual hacia arriba (pasos de 8px con 15ms de delay)
+    totalDist := Abs(childYInicio - childYFin)
+    pasoSize := 8
+    pasos := totalDist // pasoSize
+    if (pasos < 1)
+        pasos := 1
+
+    Loop, %pasos% {
+        yActual := childYInicio - (A_Index * pasoSize)
+        if (yActual < childYFin)
+            yActual := childYFin
+        lParam := ((yActual & 0xFFFF) << 16) | (childX & 0xFFFF)
+        DllCall("SendMessageW", "Ptr", hwndTarget, "UInt", 0x200, "Ptr", 0x0001, "Ptr", lParam)
+        Sleep, 15
+    }
+
+    ; Enviar WM_LBUTTONUP
+    Sleep, 30
+    lParamUp := ((childYFin & 0xFFFF) << 16) | (childX & 0xFFFF)
+    DllCall("SendMessageW", "Ptr", hwndTarget, "UInt", 0x202, "Ptr", 0x0000, "Ptr", lParamUp)
+    Sleep, 50
+
+    Log("Swipe (" . metodo . "): (" . relX . ", " . yInicio . ") -> (" . relX . ", " . yFin . ") dist=" . distancia . "px")
 }
 
-SelVentOK:
-    global SelVentInstancia
-    i := SelVentInstancia
-    GuiControlGet, seleccion, SelVent:, SelVentLista
-
-    if (seleccion = "") {
-        MsgBox, 48, Aviso, Selecciona una ventana de la lista.
-        return
-    }
-
-    ; Extraer HWND del texto "[hwnd]"
-    RegExMatch(seleccion, "\[([^\]]+)\]", m)
-    hwndSel := m1 + 0
-    if (hwndSel = 0) {
-        MsgBox, 16, Error, No se pudo obtener el HWND.
-        return
-    }
-
-    ; Verificar que no esté asignada a otra instancia
-    Loop, %MAX_INST% {
-        otroHwnd := Inst_Hwnd[A_Index]
-        if (A_Index != i && otroHwnd != 0 && otroHwnd != "" && otroHwnd = hwndSel) {
-            MsgBox, 48, Aviso, Esta ventana ya está asignada a la instancia #%A_Index%.
-            return
-        }
-    }
-
-    WinGetTitle, tituloReal, ahk_id %hwndSel%
-    Inst_Hwnd[i] := hwndSel
-    Inst_Titulo[i] := tituloReal
-    GuiControl, Main:, EditVentana%i%, %tituloReal%
-    Log("Instancia #" . i . ": Ventana asignada -> " . tituloReal . " (HWND: " . hwndSel . ")")
-    FlushLog()
-
-    Gui, SelVent:Destroy
-return
-
-SelVentGuiClose:
-SelVentGuiEscape:
-    Gui, SelVent:Destroy
-return
-
 ; ============================================================================
-; LABEL: Auto-detectar ventanas (buscar todas las del emulador)
+; LABEL: Actualizar dropdown de batallas al cambiar expansión en la GUI
 ; ============================================================================
-AutoDetectar:
-    Log("Auto-detectando ventanas del emulador...")
-    ventanasEncontradas := 0
-
-    ; Patrones comunes de emuladores Android
-    patrones := ["MuMu", "BlueStacks", "LDPlayer", "NoxPlayer", "MEmu", "Android", "Nox"]
-
-    WinGet, ids, List
-    Loop, %ids% {
-        if (ventanasEncontradas >= MAX_INST)
-            break
-        hwnd := ids%A_Index%
-        WinGetTitle, titulo, ahk_id %hwnd%
-        if (titulo = "")
-            continue
-        WinGet, estilo, Style, ahk_id %hwnd%
-        if !(estilo & 0x10000000)
-            continue
-        ; Filtrar ventanas child (auxiliares) y ventanas muy pequeñas
-        if (estilo & 0x40000000)  ; WS_CHILD
-            continue
-        WinGetPos,,, tmpW, tmpH, ahk_id %hwnd%
-        if (tmpW < 200 || tmpH < 200)
-            continue
-
-        esEmulador := false
-        for _, patron in patrones {
-            if InStr(titulo, patron) {
-                esEmulador := true
-                break
-            }
-        }
-        if (!esEmulador)
-            continue
-
-        ; Verificar que no esté ya asignada
-        yaAsignada := false
-        Loop, %MAX_INST% {
-            otroHwnd := Inst_Hwnd[A_Index]
-            if (otroHwnd != 0 && otroHwnd != "" && otroHwnd = hwnd) {
-                yaAsignada := true
-                break
-            }
-        }
-        if (yaAsignada)
-            continue
-
-        ; Asignar al primer slot libre
-        Loop, %MAX_INST% {
-            slot := A_Index
-            if (Inst_Hwnd[slot] = 0 || Inst_Hwnd[slot] = "") {
-                Inst_Hwnd[slot] := hwnd
-                Inst_Titulo[slot] := titulo
-                GuiControl, Main:, EditVentana%slot%, %titulo%
-                Log("Auto-detectado #" . slot . ": " . titulo)
-                ventanasEncontradas++
-                break
-            }
-        }
-    }
-
-    if (ventanasEncontradas = 0)
-        Log("No se encontraron ventanas de emuladores")
-    else
-        Log(ventanasEncontradas . " ventana(s) detectada(s)")
-    FlushLog()
-return
-
-; ============================================================================
-; LABEL: Auto-acomodar ventanas (misma resolución que #1, lado a lado)
-; Usa la resolución de la primera ventana asignada como referencia.
-; Las coloca una al lado de la otra horizontalmente; si no caben en la
-; pantalla, pasa a la siguiente fila.
-; ============================================================================
-AutoAcomodar:
-    ; Encontrar la primera ventana asignada para usar su tamaño de referencia
-    refHwnd := 0
-    Loop, %MAX_INST% {
-        h := Inst_Hwnd[A_Index]
-        if (h != 0 && WinExist("ahk_id " . h)) {
-            refHwnd := h
-            break
-        }
-    }
-    if (refHwnd = 0) {
-        Log("No hay ventanas para acomodar")
-        FlushLog()
-        return
-    }
-
-    WinGetPos,,, refW, refH, ahk_id %refHwnd%
-    if (refW < 50 || refH < 50) {
-        refW := VentanaAncho
-        refH := VentanaAlto
-    }
-    Log("Acomodando ventanas con resolución de referencia: " . refW . "x" . refH)
-
-    SysGet, monW, 78
-    maxCols := monW // refW
-    if (maxCols < 1)
-        maxCols := 1
-
-    idx := 0
-    Loop, %MAX_INST% {
-        i := A_Index
-        hwnd := Inst_Hwnd[i]
-        if (hwnd = 0 || !WinExist("ahk_id " . hwnd))
-            continue
-
-        col := Mod(idx, maxCols)
-        row := idx // maxCols
-        posX := col * refW
-        posY := row * refH
-        WinMove, ahk_id %hwnd%,, %posX%, %posY%, %refW%, %refH%
-        Log("Ventana #" . i . " -> (" . posX . "," . posY . ") " . refW . "x" . refH)
-        idx++
-    }
-    Log(idx . " ventana(s) acomodadas lado a lado (" . refW . "x" . refH . ")")
-    FlushLog()
-return
-
-; ============================================================================
-; LABELS: Cambiar expansión en GUI (per-instancia)
-; ============================================================================
-CambiarExpGUI1:
-    CambiarExpGUI(1)
-return
-CambiarExpGUI2:
-    CambiarExpGUI(2)
-return
-CambiarExpGUI3:
-    CambiarExpGUI(3)
-return
-CambiarExpGUI4:
-    CambiarExpGUI(4)
-return
-CambiarExpGUI5:
-    CambiarExpGUI(5)
-return
-
-CambiarExpGUI(i) {
-    global BatCnt, BatNom, TotalExpansiones
-
-    GuiControlGet, tmpExp, Main:, DDLExp%i%
+CambiarExpansionGUI:
+    GuiControlGet, tmpExp, Main:, DDLExpansion
     expNum := 1
     Loop, %TotalExpansiones% {
         if InStr(tmpExp, A_Index . ":") {
@@ -3029,85 +1828,89 @@ CambiarExpGUI(i) {
         }
     }
 
+    ; Cargar la expansión temporalmente para saber cuántas batallas tiene
+    CargarBatallasExpansion(expNum)
+
     ; Reconstruir dropdown de batallas
-    batCount := BatCnt[expNum]
-    listaBat := ""
-    if (batCount > 0) {
-        Loop, %batCount% {
-            if (listaBat != "")
-                listaBat .= "|"
-            listaBat .= A_Index . ": " . BatNom[expNum, A_Index]
+    listaBatallas := ""
+    if (TotalBatallas > 0) {
+        Loop, %TotalBatallas% {
+            if (listaBatallas != "")
+                listaBatallas .= "|"
+            listaBatallas .= A_Index . ": " . BatallaNombres[A_Index]
         }
     } else {
-        listaBat := "(sin batallas)"
+        listaBatallas := "(sin batallas)"
     }
-    GuiControl, Main:, DDLBat%i%, |%listaBat%
-    GuiControl, Main:Choose, DDLBat%i%, 1
-}
+    GuiControl, Main:, DDLBatalla, |%listaBatallas%
+    GuiControl, Main:Choose, DDLBatalla, 1
+
+    ; Restaurar la expansión actual del bot (no cambiar hasta que inicie)
+    CargarBatallasExpansion(ExpansionActual)
+return
 
 ; ============================================================================
-; LABELS: Scroll (compartidos, usan la primera ventana activa para pruebas)
+; LABEL: Seleccionar punto de scroll haciendo clic en la ventana del juego
 ; ============================================================================
 SeleccionarPuntoScroll:
-    ; Encontrar primera ventana asignada
-    hwndScroll := 0
-    Loop, %MAX_INST% {
-        if (Inst_Hwnd[A_Index] != 0) {
-            hwndScroll := Inst_Hwnd[A_Index]
-            break
-        }
-    }
-    if (hwndScroll = 0) {
-        MsgBox, 16, Error, Primero asigna al menos una ventana.
+    if (VentanaObjetivo = "" || VentanaObjetivo = "(ninguna seleccionada)") {
+        MsgBox, 16, Error, Primero selecciona una ventana del juego.
         return
     }
-    if (!WinExist("ahk_id " . hwndScroll)) {
-        MsgBox, 16, Error, La ventana asignada no existe.
+    IfWinNotExist, %VentanaObjetivo%
+    {
+        MsgBox, 16, Error, La ventana '%VentanaObjetivo%' no existe.
         return
     }
 
     Log(">>> Coloca el mouse en el punto de swipe y espera 3 segundos...")
-    MsgBox, 64, Seleccionar Punto Swipe, Coloca el mouse sobre el punto de la ventana donde quieres hacer swipe.`n`nTienes 3 segundos después de cerrar este mensaje., 5
+    MsgBox, 64, Seleccionar Punto Swipe, Coloca el mouse sobre el punto de la ventana del juego donde quieres hacer swipe.`n`nTienes 3 segundos después de cerrar este mensaje., 5
+
     Sleep, 3000
 
+    ; Capturar posición del mouse
     CoordMode, Mouse, Screen
     MouseGetPos, mouseX, mouseY
 
-    WinGetPos, wx, wy, ww, wh, ahk_id %hwndScroll%
+    ; Obtener posición de la ventana para calcular coordenadas relativas
+    WinGetPos, wx, wy, ww, wh, %VentanaObjetivo%
     nuevoX := mouseX - wx
     nuevoY := mouseY - wy
 
+    ; Verificar que el punto está dentro de la ventana
     if (nuevoX < 0 || nuevoY < 0 || nuevoX > ww || nuevoY > wh) {
-        MsgBox, 16, Error, El mouse está fuera de la ventana.
+        Log("ERROR: El mouse está fuera de la ventana objetivo")
+        MsgBox, 16, Error, El mouse está fuera de la ventana del juego.`nIntenta de nuevo.
         return
     }
 
+    ; Actualizar campos en la GUI
     GuiControl, Main:, EditScrollX, %nuevoX%
     GuiControl, Main:, EditScrollY, %nuevoY%
+
+    ; Actualizar variables globales
     ScrollRelX := nuevoX
     ScrollRelY := nuevoY
-    Log("Punto de swipe: (" . nuevoX . ", " . nuevoY . ")")
-    MsgBox, 64, Punto Seleccionado, Punto: X=%nuevoX% Y=%nuevoY%
-    FlushLog()
+
+    Log("Punto de swipe seleccionado: (" . nuevoX . ", " . nuevoY . ")")
+    MsgBox, 64, Punto Seleccionado, Punto de swipe establecido en:`nX: %nuevoX%  Y: %nuevoY%`n`n(Coordenadas relativas a la ventana)
 return
 
+; ============================================================================
+; LABEL: Probar scroll en el punto configurado
+; ============================================================================
 ProbarScroll:
-    hwndScroll := 0
-    Loop, %MAX_INST% {
-        if (Inst_Hwnd[A_Index] != 0) {
-            hwndScroll := Inst_Hwnd[A_Index]
-            break
-        }
-    }
-    if (hwndScroll = 0) {
-        MsgBox, 16, Error, Primero asigna al menos una ventana.
+    if (VentanaObjetivo = "" || VentanaObjetivo = "(ninguna seleccionada)") {
+        MsgBox, 16, Error, Primero selecciona una ventana del juego.
         return
     }
-    if (!WinExist("ahk_id " . hwndScroll)) {
-        MsgBox, 16, Error, La ventana no existe.
+    IfWinNotExist, %VentanaObjetivo%
+    {
+        MsgBox, 16, Error, La ventana '%VentanaObjetivo%' no existe.
         return
     }
 
+    ; Leer valores actuales de la GUI
     GuiControlGet, tmpScrollX, Main:, EditScrollX
     GuiControlGet, tmpScrollY, Main:, EditScrollY
     GuiControlGet, tmpScrollCant, Main:, EditScrollCant
@@ -3115,61 +1918,82 @@ ProbarScroll:
     tmpScrollY := RegExReplace(tmpScrollY, ",", "") + 0
 
     Log("Probando swipe en (" . tmpScrollX . ", " . tmpScrollY . ") x" . tmpScrollCant . "...")
-    HacerScrollEnVentana(hwndScroll, tmpScrollX, tmpScrollY, tmpScrollCant)
+    HacerScrollEnVentana(tmpScrollX, tmpScrollY, tmpScrollCant)
     Log("Swipe de prueba enviado")
-    FlushLog()
 return
 
 ; ============================================================================
-; LABELS: ADB
+; LABEL: Ajustar el tamaño de la ventana del juego
 ; ============================================================================
-DetectarADBBtn:
-    if (DetectarADB()) {
-        GuiControl, Main:, EditADBRuta, %ADB_Ruta%
-        Log("ADB detectado: " . ADB_Ruta)
-    } else {
-        Log("ERROR: No se encontró adb.exe. Indica la ruta manualmente.")
+AjustarVentana:
+    if (VentanaObjetivo = "" || VentanaObjetivo = "(ninguna seleccionada)") {
+        MsgBox, 16, Error, Primero selecciona una ventana del juego.
+        Log("ERROR: No hay ventana seleccionada para ajustar")
+        return
     }
-    FlushLog()
+
+    IfWinNotExist, %VentanaObjetivo%
+    {
+        MsgBox, 16, Error, La ventana '%VentanaObjetivo%' no existe.`nAbre el juego primero.
+        Log("ERROR: Ventana no encontrada al intentar ajustar")
+        return
+    }
+
+    GuiControlGet, EditVentanaAncho, Main:
+    GuiControlGet, EditVentanaAlto, Main:
+    VentanaAncho := RegExReplace(EditVentanaAncho, ",", "") + 0
+    VentanaAlto := RegExReplace(EditVentanaAlto, ",", "") + 0
+
+    if (VentanaAncho < 100 || VentanaAlto < 100) {
+        MsgBox, 16, Error, Las dimensiones deben ser al menos 100x100 pixeles.
+        Log("ERROR: Dimensiones invalidas: " . VentanaAncho . "x" . VentanaAlto)
+        return
+    }
+
+    WinGetPos, wx, wy, wwActual, whActual, %VentanaObjetivo%
+    Log("Tamano actual de ventana: " . wwActual . "x" . whActual)
+
+    if (wwActual = VentanaAncho && whActual = VentanaAlto) {
+        Log("La ventana ya esta en " . VentanaAncho . "x" . VentanaAlto)
+        MsgBox, 64, Ajuste de Ventana, La ventana ya tiene el tamano correcto:`n%VentanaAncho% x %VentanaAlto%
+        return
+    }
+
+    WinMove, %VentanaObjetivo%,, wx, wy, %VentanaAncho%, %VentanaAlto%
+    Sleep, 200
+    WinGetPos,,, wwNuevo, whNuevo, %VentanaObjetivo%
+
+    if (wwNuevo = VentanaAncho && whNuevo = VentanaAlto) {
+        Log("Ventana ajustada exitosamente: " . wwNuevo . "x" . whNuevo)
+        MsgBox, 64, Ajuste de Ventana, Ventana redimensionada correctamente:`n%wwNuevo% x %whNuevo%
+    } else {
+        Log("AVISO: Tamano resultante (" . wwNuevo . "x" . whNuevo . ") difiere del objetivo (" . VentanaAncho . "x" . VentanaAlto . ")")
+        MsgBox, 48, Aviso, El tamano resultante difiere del objetivo.`n`nObjetivo: %VentanaAncho% x %VentanaAlto%`nResultado: %wwNuevo% x %whNuevo%`n`nEl juego puede tener restricciones de tamano.
+    }
 return
 
-ToggleADB:
-    GuiControlGet, tmpADB, Main:, ChkADB
-    ADB_Habilitado := tmpADB
-    if (ADB_Habilitado) {
-        GuiControlGet, tmpRuta, Main:, EditADBRuta
-        ADB_Ruta := Trim(tmpRuta, " `t`r`n")
-        if (ADB_Ruta = "" || !FileExist(ADB_Ruta)) {
-            if (!DetectarADB()) {
-                Log("ERROR: ADB no encontrado. Desactivando.")
-                ADB_Habilitado := false
-                GuiControl, Main:, ChkADB, 0
-                FlushLog()
-                return
-            }
-            GuiControl, Main:, EditADBRuta, %ADB_Ruta%
-        }
-        ; Parsear puertos
-        GuiControlGet, tmpPuertos, Main:, EditADBPuertos
-        StringSplit, pArr, tmpPuertos, `,
-        Loop, %MAX_INST% {
-            if (A_Index <= pArr0) {
-                p := RegExReplace(pArr%A_Index%, "[^0-9]", "") + 0
-                Inst_ADB_Puerto[A_Index] := p
-            } else {
-                Inst_ADB_Puerto[A_Index] := 16384 + (A_Index - 1) * 32
-            }
-        }
-        ; Conectar todas las instancias activas
-        Loop, %MAX_INST% {
-            if (Inst_Activo[A_Index] || Inst_Hwnd[A_Index])
-                ADB_Conectar(A_Index)
-        }
-        Log("ADB habilitado")
-    } else {
-        Log("ADB deshabilitado - usando ControlClick")
+; ============================================================================
+; LABEL: Consultar tamaño actual de la ventana
+; ============================================================================
+ConsultarTamano:
+    if (VentanaObjetivo = "" || VentanaObjetivo = "(ninguna seleccionada)") {
+        MsgBox, 16, Error, Primero selecciona una ventana del juego.
+        return
     }
-    FlushLog()
+
+    IfWinNotExist, %VentanaObjetivo%
+    {
+        MsgBox, 16, Error, La ventana '%VentanaObjetivo%' no existe.
+        return
+    }
+
+    WinGetPos, wx, wy, ww, wh, %VentanaObjetivo%
+    Log("Tamano actual: " . ww . "x" . wh . " en posicion (" . wx . ", " . wy . ")")
+
+    GuiControl, Main:, EditVentanaAncho, %ww%
+    GuiControl, Main:, EditVentanaAlto, %wh%
+
+    MsgBox, 64, Tamano Actual, Ventana: %VentanaObjetivo%`n`nTamano: %ww% x %wh%`nPosicion: %wx%`, %wy%`n`nLos campos se han actualizado con el tamano actual.
 return
 
 ; ============================================================================
@@ -3184,4 +2008,9 @@ MainGuiEscape:
         GuardarConfig()
         ExitApp
     }
+return
+
+ListaGuiClose:
+ListaGuiEscape:
+    Gui, Lista:Destroy
 return
