@@ -2474,8 +2474,22 @@ ProcesarInstancia(i) {
             Inst_ErrCon[i] := Inst_ErrCon[i] + 1
             if (Mod(Inst_ErrCon[i], 5) = 0)
                 LogI(i, "P10: Menú abierto, '" . nombreExpDest . "' no visible (" . Inst_ErrCon[i] . ")")
-            ; Después de 15 intentos en modo menú, el menú probablemente se cerró — volver a modo búsqueda
-            if (Inst_ErrCon[i] >= 15) {
+            ; Después de 3 intentos sin encontrar, hacer scroll DENTRO del menú
+            ; El menú está centrado en la ventana, usar centro de ventana como coordenada de scroll
+            if (Inst_ErrCon[i] >= 3) {
+                WinGetPos, , , menuWW, menuWH, ahk_id %hwnd%
+                menuScrollX := menuWW // 2
+                menuScrollY := menuWH // 2
+                if (Mod(Inst_ErrCon[i], 6) < 3) {
+                    ; Scroll abajo dentro del menú
+                    IniciarScroll(i, hwnd, menuScrollX, menuScrollY, ScrollCantidad)
+                } else {
+                    ; Scroll arriba dentro del menú
+                    IniciarScroll(i, hwnd, menuScrollX, menuScrollY, -ScrollCantidad)
+                }
+            }
+            ; Después de 20 intentos en modo menú, el menú probablemente se cerró — volver a modo búsqueda
+            if (Inst_ErrCon[i] >= 20) {
                 LogI(i, "P10: Menú no responde. Volver a buscar botón Expansiones.")
                 Inst_P10Menu[i] := 0
                 Inst_ErrCon[i] := 0
