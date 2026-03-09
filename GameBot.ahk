@@ -998,24 +998,65 @@ ADB_Cmd(i, comando) {
 }
 
 ; ============================================================================
+; FUNCIÓN: Obtener el offset del área cliente respecto a la ventana
+; La barra de título de MuMu hace que WinGetPos devuelva un tamaño mayor
+; que el área de renderizado Android. Necesitamos el offset para mapear
+; coordenadas de ventana a coordenadas Android correctamente.
+; ============================================================================
+GetClientOffset(hwnd, ByRef offsetX, ByRef offsetY, ByRef clientW, ByRef clientH) {
+    ; Obtener posición de la ventana completa
+    WinGetPos, wx, wy, ww, wh, ahk_id %hwnd%
+
+    ; Obtener tamaño del área cliente (sin barra de título ni bordes)
+    VarSetCapacity(rect, 16, 0)
+    DllCall("GetClientRect", "Ptr", hwnd, "Ptr", &rect)
+    clientW := NumGet(rect, 8, "Int")   ; right
+    clientH := NumGet(rect, 12, "Int")  ; bottom
+
+    ; Obtener posición del área cliente en coordenadas de pantalla
+    VarSetCapacity(pt, 8, 0)
+    NumPut(0, pt, 0, "Int")
+    NumPut(0, pt, 4, "Int")
+    DllCall("ClientToScreen", "Ptr", hwnd, "Ptr", &pt)
+    clientScreenX := NumGet(pt, 0, "Int")
+    clientScreenY := NumGet(pt, 4, "Int")
+
+    ; Offset = diferencia entre esquina superior de ventana y esquina del área cliente
+    offsetX := clientScreenX - wx
+    offsetY := clientScreenY - wy
+}
+
+; ============================================================================
 ; FUNCIÓN: Tap ADB (coordenadas relativas a la ventana → Android)
+; Mapea usando el ÁREA CLIENTE (sin barra de título) para precisión
 ; ============================================================================
 ADB_Tap(i, relX, relY) {
     global
     res := Inst_ADB_Res[i]
     hwnd := Inst_Hwnd[i]
 
-    ; Obtener tamaño de ventana para mapear coordenadas
-    WinGetPos,,, ww, wh, ahk_id %hwnd%
-    if (ww > 0 && wh > 0 && res.w > 0 && res.h > 0) {
-        ; Mapear coordenadas de ventana a resolución Android
-        adbX := Round(relX * res.w / ww)
-        adbY := Round(relY * res.h / wh)
+    ; Obtener offset del área cliente (sin barra de título)
+    GetClientOffset(hwnd, offsetX, offsetY, clientW, clientH)
+
+    ; Convertir coordenadas de ventana a coordenadas del área cliente
+    clientRelX := relX - offsetX
+    clientRelY := relY - offsetY
+
+    if (clientW > 0 && clientH > 0 && res.w > 0 && res.h > 0) {
+        ; Mapear coordenadas del área cliente a resolución Android
+        adbX := Round(clientRelX * res.w / clientW)
+        adbY := Round(clientRelY * res.h / clientH)
     } else {
-        ; Sin resolución conocida, usar coordenadas directas
-        adbX := relX
-        adbY := relY
+        adbX := clientRelX
+        adbY := clientRelY
     }
+
+    ; Clamp para evitar coordenadas negativas (click en barra de título)
+    if (adbX < 0)
+        adbX := 0
+    if (adbY < 0)
+        adbY := 0
+
     ADB_Cmd(i, "input tap " . adbX . " " . adbY)
 }
 
@@ -1027,16 +1068,32 @@ ADB_Swipe(i, relX, relYInicio, relYFin, duracionMs := 500) {
     res := Inst_ADB_Res[i]
     hwnd := Inst_Hwnd[i]
 
-    WinGetPos,,, ww, wh, ahk_id %hwnd%
-    if (ww > 0 && wh > 0 && res.w > 0 && res.h > 0) {
-        adbX := Round(relX * res.w / ww)
-        adbYI := Round(relYInicio * res.h / wh)
-        adbYF := Round(relYFin * res.h / wh)
+    ; Obtener offset del área cliente (sin barra de título)
+    GetClientOffset(hwnd, offsetX, offsetY, clientW, clientH)
+
+    ; Convertir coordenadas de ventana a coordenadas del área cliente
+    cRelX := relX - offsetX
+    cRelYI := relYInicio - offsetY
+    cRelYF := relYFin - offsetY
+
+    if (clientW > 0 && clientH > 0 && res.w > 0 && res.h > 0) {
+        adbX := Round(cRelX * res.w / clientW)
+        adbYI := Round(cRelYI * res.h / clientH)
+        adbYF := Round(cRelYF * res.h / clientH)
     } else {
-        adbX := relX
-        adbYI := relYInicio
-        adbYF := relYFin
+        adbX := cRelX
+        adbYI := cRelYI
+        adbYF := cRelYF
     }
+
+    ; Clamp para evitar coordenadas negativas
+    if (adbX < 0)
+        adbX := 0
+    if (adbYI < 0)
+        adbYI := 0
+    if (adbYF < 0)
+        adbYF := 0
+
     ADB_Cmd(i, "input swipe " . adbX . " " . adbYI . " " . adbX . " " . adbYF . " " . duracionMs)
 }
 
