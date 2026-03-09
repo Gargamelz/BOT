@@ -1893,9 +1893,11 @@ LoopPrincipal:
 
     pasoAntes := Inst_Paso[i]
     ProcesarInstancia(i)
-    ; Si el paso cambió, hubo progreso => resetear watchdog
-    if (Inst_Paso[i] != pasoAntes)
+    ; Si el paso cambió, hubo progreso => resetear watchdog y contadores de error
+    if (Inst_Paso[i] != pasoAntes) {
         Inst_LastExito[i] := A_TickCount
+        Inst_ErrCon[i] := 0
+    }
 
     ; Flush log y actualizar estado de esta instancia
     FlushLog()
@@ -2010,25 +2012,32 @@ ProcesarRecuperacion(i) {
         return true
     }
     ; Fase 5: Buscar VICTORIA
+    ; Solo buscar victoria/derrota si el paso origen indica que SÍ hubo una batalla
+    ; (P4+ = durante/después de batalla). Si estamos en P1/P2/P3, NO buscar resultado
+    ; porque la batalla no se inició y podríamos detectar imágenes de otra ventana.
     if (fase = 5) {
-        if (BuscarImagenEnVentana(hwnd, IMG_VICTORIA, foundX, foundY)) {
-            LogI(i, "RECUP[P" . pasoOrigen . "]: Victoria detectada. Ir a P4")
-            Inst_ResInt[i] := 0
-            Inst_Paso[i] := 4
-            Inst_RecupFase[i] := 0
-            return true
+        if (pasoOrigen >= 4) {
+            if (BuscarImagenEnVentana(hwnd, IMG_VICTORIA, foundX, foundY)) {
+                LogI(i, "RECUP[P" . pasoOrigen . "]: Victoria detectada. Ir a P4")
+                Inst_ResInt[i] := 0
+                Inst_Paso[i] := 4
+                Inst_RecupFase[i] := 0
+                return true
+            }
         }
         Inst_RecupFase[i] := 6
         return true
     }
     ; Fase 6: Buscar DERROTA
     if (fase = 6) {
-        if (BuscarImagenEnVentana(hwnd, IMG_DERROTA, foundX, foundY)) {
-            LogI(i, "RECUP[P" . pasoOrigen . "]: Derrota detectada. Ir a P4")
-            Inst_ResInt[i] := 0
-            Inst_Paso[i] := 4
-            Inst_RecupFase[i] := 0
-            return true
+        if (pasoOrigen >= 4) {
+            if (BuscarImagenEnVentana(hwnd, IMG_DERROTA, foundX, foundY)) {
+                LogI(i, "RECUP[P" . pasoOrigen . "]: Derrota detectada. Ir a P4")
+                Inst_ResInt[i] := 0
+                Inst_Paso[i] := 4
+                Inst_RecupFase[i] := 0
+                return true
+            }
         }
         ; Nada encontrado: ir a P1 como último recurso
         LogI(i, "RECUP[P" . pasoOrigen . "]: Nada detectado. Volviendo a P1")
@@ -2224,8 +2233,10 @@ ProcesarInstancia(i) {
 
                 Inst_Bat[i] := 1
                 Inst_P8Int[i] := 0
+                Inst_P10Int[i] := 0
+                Inst_P11Int[i] := 0
                 Inst_Paso[i] := 10
-                LogI(i, ">>> Ir a P10: CambiarExpansion (Exp " . Inst_Exp[i] . ")")
+                LogI(i, ">>> Ir a P10: CambiarExpansion (Exp " . Inst_Exp[i] . ": " . ExpansionNombres[Inst_Exp[i]] . ")")
                 return
             }
             exp := Inst_Exp[i]
@@ -2291,8 +2302,10 @@ ProcesarInstancia(i) {
                     revisadas2++
                 }
                 Inst_Bat[i] := 1
+                Inst_P10Int[i] := 0
+                Inst_P11Int[i] := 0
                 Inst_Paso[i] := 10
-                LogI(i, ">>> Exp agotada. Ir a P10: CambiarExpansion (Exp " . Inst_Exp[i] . ")")
+                LogI(i, ">>> Exp agotada. Ir a P10: CambiarExpansion (Exp " . Inst_Exp[i] . ": " . ExpansionNombres[Inst_Exp[i]] . ")")
             } else {
                 LogI(i, ">>> Saltando a batalla " . Inst_Bat[i] . " de Exp " . Inst_Exp[i])
                 ; Quedarse en P8 para buscar la nueva batalla
@@ -2373,15 +2386,25 @@ ProcesarInstancia(i) {
         ; NO hacer scroll: el botón de expansiones es fijo en la UI
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
 
-        if (Mod(Inst_ErrCon[i], 10) = 0)
+        if (Mod(Inst_ErrCon[i], 5) = 0)
             LogI(i, "P10: 'Expansiones' no encontrado (" . Inst_ErrCon[i] . " intentos)")
 
-        if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "P10: No encontró 'Expansiones'. Intentando P11 directamente...")
-            Inst_P10Int[i] := 0
-            Inst_ErrCon[i] := 0
-            ; Ir a P11 por si el menú ya está abierto
-            Inst_Paso[i] := 11
+        ; Solo esperar 10 intentos — botón fijo, no necesita scroll
+        if (Inst_ErrCon[i] >= 10) {
+            Inst_P10Int[i] := Inst_P10Int[i] + 100  ; Marcar que ya falló un ciclo completo
+
+            if (Inst_P10Int[i] >= 300) {
+                ; Ya falló 3 veces (P10↔P11 loop). Rendirse e ir a P1 con expansión actual
+                LogI(i, "P10: Loop P10-P11 detectado. Ir a P1 con expansión actual (" . ExpansionNombres[Inst_Exp[i]] . ")")
+                Inst_P10Int[i] := 0
+                Inst_ErrCon[i] := 0
+                Inst_Paso[i] := 1
+            } else {
+                LogI(i, "P10: No encontró 'Expansiones'. Intentando P11 directamente...")
+                Inst_ErrCon[i] := 0
+                ; Ir a P11 por si el menú ya está abierto
+                Inst_Paso[i] := 11
+            }
         }
         return
     }
@@ -2425,8 +2448,8 @@ ProcesarInstancia(i) {
             return
         }
 
-        ; Cada 5 intentos, intentar abrir el menú de expansiones por si no está abierto
-        if (Mod(Inst_P11Int[i], 5) = 0) {
+        ; Cada 7 intentos, intentar abrir el menú de expansiones por si no está abierto
+        if (Mod(Inst_P11Int[i], 7) = 0) {
             if (BuscarImagenEnVentana(hwnd, IMG_EXPANSIONES, foundX, foundY)) {
                 LogI(i, "P11: Menú de expansiones no abierto. Abriendo...")
                 HacerClicEnVentana(hwnd, foundX, foundY, i)
@@ -2436,37 +2459,28 @@ ProcesarInstancia(i) {
         }
 
         ; Scroll dentro del menú de expansiones para encontrar la expansión
-        if (Mod(Inst_P11Int[i], 10) = 0) {
-            LogI(i, "P11: Scroll inverso para volver arriba (" . Inst_P11Int[i] . ")")
-            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2, 5)
-        } else {
-            if (Mod(Inst_P11Int[i], 5) = 0)
-                LogI(i, "P11: '" . nombreExp . "' no encontrado. Scroll... (" . Inst_P11Int[i] . ")")
-            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
+        ; Solo hacer scroll cada 3 intentos para dar tiempo a la detección
+        if (Mod(Inst_P11Int[i], 3) = 0) {
+            if (Mod(Inst_P11Int[i], 15) = 0) {
+                LogI(i, "P11: Scroll inverso para volver arriba (" . Inst_P11Int[i] . ")")
+                IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2, 5)
+            } else {
+                if (Mod(Inst_P11Int[i], 6) = 0)
+                    LogI(i, "P11: '" . nombreExp . "' no encontrado. Scroll... (" . Inst_P11Int[i] . ")")
+                IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
+            }
         }
 
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         Inst_Errores[i] := Inst_Errores[i] + 1
         if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "P11: No encontró expansión " . nombreExp . ". Saltando a siguiente expansión.")
+            LogI(i, "P11: No encontró expansión '" . nombreExp . "'. Volviendo a P10 para abrir menú.")
             Inst_P11Int[i] := 0
             Inst_ErrCon[i] := 0
             Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
-            ; Saltar a la siguiente expansión
-            Inst_Exp[i] := Inst_Exp[i] + 1
-            if (Inst_Exp[i] > TotalExpansiones)
-                Inst_Exp[i] := 1
-            revisadas3 := 0
-            while (BatCnt[Inst_Exp[i]] = 0 && revisadas3 < TotalExpansiones) {
-                Inst_Exp[i] := Inst_Exp[i] + 1
-                if (Inst_Exp[i] > TotalExpansiones)
-                    Inst_Exp[i] := 1
-                revisadas3++
-            }
-            Inst_Bat[i] := 1
-            ; Intentar de nuevo desde el menú de expansiones
-            Inst_Paso[i] := 11
-            LogI(i, ">>> Probando Exp " . Inst_Exp[i] . ": " . ExpansionNombres[Inst_Exp[i]])
+            ; Volver a P10 para intentar abrir el menú de expansiones
+            ; (preservar P10Int para detectar loop P10↔P11)
+            Inst_Paso[i] := 10
         }
         return
     }
@@ -2569,10 +2583,18 @@ ProcesarInstancia(i) {
             LogI(i, "P" . paso . ": '" . nombrePaso . "' no encontrado (" . Inst_ErrCon[i] . ")")
 
         if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "RECUPERACION: Atascado P" . paso)
             Inst_ErrCon[i] := 0
             Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
-            Inst_Paso[i] := RecuperacionInteligente(i, hwnd, paso)
+            if (paso = 2 || paso = 3) {
+                ; Auto/Iniciar no encontrados: la pantalla de batalla no cargó.
+                ; Volver a P1 para reintentar (NO buscar victoria/derrota)
+                LogI(i, "P" . paso . ": '" . nombrePaso . "' no encontrado. Volviendo a P1.")
+                Inst_Paso[i] := 1
+            } else {
+                ; P7 u otros: usar recuperación normal
+                LogI(i, "RECUPERACION: Atascado P" . paso)
+                Inst_Paso[i] := RecuperacionInteligente(i, hwnd, paso)
+            }
         }
     }
 }
