@@ -2345,143 +2345,85 @@ ProcesarInstancia(i) {
     }
 
     ; ================================================================
-    ; PASO 10: Cambiar expansión (buscar botón "Expansiones")
-    ; Este botón es fijo en la interfaz, NO requiere scroll.
+    ; PASO 10: Cambiar expansión
+    ; Estrategia: Primero scroll arriba para ver la zona de expansiones,
+    ; luego buscar el botón de la expansión destino directamente.
+    ; Si existe un botón "Expansiones" intermedio, clickearlo primero.
     ; ================================================================
     if (paso = 10) {
         Inst_P10Int[i] := Inst_P10Int[i] + 1
 
-        if (Inst_P10Int[i] = 1)
-            LogI(i, "P10: Buscando 'Expansiones'...")
-
-        Inst_Estado[i] := "P10: Expansiones (" . Inst_P10Int[i] . ")"
-
-        if (BuscarImagenEnVentana(hwnd, IMG_EXPANSIONES, foundX, foundY)) {
-            LogI(i, "P10: 'Expansiones' encontrado. Clic...")
-            HacerClicEnVentana(hwnd, foundX, foundY, i)
-            Inst_P10Int[i] := 0
-            Inst_ErrCon[i] := 0
-            Inst_Paso[i] := 11
-            Inst_SkipTick[i] := 2
-            return
-        }
-
-        ; También buscar directamente la expansión destino (P11)
-        ; por si el menú de expansiones ya está abierto
         expDest := Inst_Exp[i]
+        nombreExpDest := ExpansionNombres[expDest]
         imgExpDest := ExpansionImagenes[expDest]
+
+        if (Inst_P10Int[i] = 1)
+            LogI(i, "P10: Cambiando a expansión '" . nombreExpDest . "'...")
+
+        Inst_Estado[i] := "P10: -> " . nombreExpDest . " (" . Inst_P10Int[i] . ")"
+
+        ; 1) Buscar directamente la expansión destino (puede ser un tab visible)
         if (imgExpDest != "" && ArchivoExiste(imgExpDest)) {
             if (BuscarImagenEnVentana(hwnd, imgExpDest, foundX, foundY)) {
-                LogI(i, "P10: Expansión '" . ExpansionNombres[expDest] . "' ya visible. Clic directo...")
+                LogI(i, "P10: Expansión '" . nombreExpDest . "' encontrada. Clic...")
                 HacerClicEnVentana(hwnd, foundX, foundY, i)
                 Inst_P10Int[i] := 0
                 Inst_ErrCon[i] := 0
                 Inst_Paso[i] := 1
                 Inst_SkipTick[i] := 2
                 Inst_LastExito[i] := A_TickCount
+                LogI(i, ">>> Expansión cambiada. Ir a P1.")
                 return
             }
         }
 
-        ; NO hacer scroll: el botón de expansiones es fijo en la UI
+        ; 2) Buscar botón "Expansiones" (menú intermedio, si existe)
+        if (BuscarImagenEnVentana(hwnd, IMG_EXPANSIONES, foundX, foundY)) {
+            LogI(i, "P10: Botón 'Expansiones' encontrado. Clic...")
+            HacerClicEnVentana(hwnd, foundX, foundY, i)
+            Inst_SkipTick[i] := 2
+            ; Quedarse en P10: el siguiente tick buscará la expansión destino
+            return
+        }
+
+        ; 3) Scroll para buscar — la expansión o el botón pueden estar fuera de vista
+        ;    Primeros intentos: scroll arriba (las expansiones suelen estar arriba)
+        ;    Después: alternar arriba/abajo
+        if (Inst_P10Int[i] <= 5) {
+            ; Primeros 5 intentos: scroll arriba agresivo para llegar a zona de expansiones
+            if (Inst_P10Int[i] = 2)
+                LogI(i, "P10: No visible. Scroll arriba...")
+            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2, 3)
+        } else if (Mod(Inst_P10Int[i], 6) < 3) {
+            ; Scroll abajo
+            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
+        } else {
+            ; Scroll arriba
+            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2, 3)
+        }
+
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
+        if (Mod(Inst_ErrCon[i], 10) = 0)
+            LogI(i, "P10: '" . nombreExpDest . "' no encontrada (" . Inst_ErrCon[i] . " intentos)")
 
-        if (Mod(Inst_ErrCon[i], 5) = 0)
-            LogI(i, "P10: 'Expansiones' no encontrado (" . Inst_ErrCon[i] . " intentos)")
-
-        ; Solo esperar 10 intentos — botón fijo, no necesita scroll
-        if (Inst_ErrCon[i] >= 10) {
-            Inst_P10Int[i] := Inst_P10Int[i] + 100  ; Marcar que ya falló un ciclo completo
-
-            if (Inst_P10Int[i] >= 300) {
-                ; Ya falló 3 veces (P10↔P11 loop). Rendirse e ir a P1 con expansión actual
-                LogI(i, "P10: Loop P10-P11 detectado. Ir a P1 con expansión actual (" . ExpansionNombres[Inst_Exp[i]] . ")")
-                Inst_P10Int[i] := 0
-                Inst_ErrCon[i] := 0
-                Inst_Paso[i] := 1
-            } else {
-                LogI(i, "P10: No encontró 'Expansiones'. Intentando P11 directamente...")
-                Inst_ErrCon[i] := 0
-                ; Ir a P11 por si el menú ya está abierto
-                Inst_Paso[i] := 11
-            }
+        if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
+            LogI(i, "P10: No pudo cambiar a '" . nombreExpDest . "'. Ir a P1.")
+            Inst_P10Int[i] := 0
+            Inst_ErrCon[i] := 0
+            Inst_Paso[i] := 1
         }
         return
     }
 
     ; ================================================================
-    ; PASO 11: Seleccionar expansión destino en el menú
+    ; PASO 11 ya no se usa — la lógica se unificó en P10.
+    ; Si por alguna razón se llega aquí, redirigir a P10.
     ; ================================================================
     if (paso = 11) {
-        Inst_P11Int[i] := Inst_P11Int[i] + 1
-        exp := Inst_Exp[i]
-        nombreExp := ExpansionNombres[exp]
-        imgExp := ExpansionImagenes[exp]
-
-        if (imgExp = "" || !ArchivoExiste(imgExp)) {
-            LogI(i, "ERROR: Falta imagen expansión " . exp . ". Saltando a siguiente.")
-            Inst_P11Int[i] := 0
-            ; Saltar a la siguiente expansión que tenga imagen
-            Inst_Exp[i] := Inst_Exp[i] + 1
-            if (Inst_Exp[i] > TotalExpansiones)
-                Inst_Exp[i] := 1
-            Inst_Bat[i] := 1
-            ; Si vuelve a la misma, ir a P1 para no hacer loop infinito
-            if (Inst_Exp[i] = exp) {
-                Inst_Paso[i] := 1
-            }
-            return
-        }
-
-        if (Inst_P11Int[i] = 1)
-            LogI(i, "P11: Buscando '" . nombreExp . "'...")
-
-        Inst_Estado[i] := "P11: " . nombreExp . " (" . Inst_P11Int[i] . ")"
-
-        if (BuscarImagenEnVentana(hwnd, imgExp, foundX, foundY)) {
-            LogI(i, "P11: '" . nombreExp . "' encontrado. Clic...")
-            HacerClicEnVentana(hwnd, foundX, foundY, i)
-            Inst_P11Int[i] := 0
-            Inst_ErrCon[i] := 0
-            Inst_Paso[i] := 1
-            Inst_SkipTick[i] := 2
-            return
-        }
-
-        ; Cada 7 intentos, intentar abrir el menú de expansiones por si no está abierto
-        if (Mod(Inst_P11Int[i], 7) = 0) {
-            if (BuscarImagenEnVentana(hwnd, IMG_EXPANSIONES, foundX, foundY)) {
-                LogI(i, "P11: Menú de expansiones no abierto. Abriendo...")
-                HacerClicEnVentana(hwnd, foundX, foundY, i)
-                Inst_SkipTick[i] := 2
-                return
-            }
-        }
-
-        ; Scroll dentro del menú de expansiones para encontrar la expansión
-        ; Solo hacer scroll cada 3 intentos para dar tiempo a la detección
-        if (Mod(Inst_P11Int[i], 3) = 0) {
-            if (Mod(Inst_P11Int[i], 15) = 0) {
-                LogI(i, "P11: Scroll inverso para volver arriba (" . Inst_P11Int[i] . ")")
-                IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2, 5)
-            } else {
-                if (Mod(Inst_P11Int[i], 6) = 0)
-                    LogI(i, "P11: '" . nombreExp . "' no encontrado. Scroll... (" . Inst_P11Int[i] . ")")
-                IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
-            }
-        }
-
-        Inst_ErrCon[i] := Inst_ErrCon[i] + 1
-        Inst_Errores[i] := Inst_Errores[i] + 1
-        if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
-            LogI(i, "P11: No encontró expansión '" . nombreExp . "'. Volviendo a P10 para abrir menú.")
-            Inst_P11Int[i] := 0
-            Inst_ErrCon[i] := 0
-            Inst_RecuperacionTotal[i] := Inst_RecuperacionTotal[i] + 1
-            ; Volver a P10 para intentar abrir el menú de expansiones
-            ; (preservar P10Int para detectar loop P10↔P11)
-            Inst_Paso[i] := 10
-        }
+        Inst_Paso[i] := 10
+        Inst_P10Int[i] := 0
+        Inst_P11Int[i] := 0
+        Inst_ErrCon[i] := 0
         return
     }
 
