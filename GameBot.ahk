@@ -2474,19 +2474,14 @@ ProcesarInstancia(i) {
             Inst_ErrCon[i] := Inst_ErrCon[i] + 1
             if (Mod(Inst_ErrCon[i], 5) = 0)
                 LogI(i, "P10: Menú abierto, '" . nombreExpDest . "' no visible (" . Inst_ErrCon[i] . ")")
-            ; Después de 4 intentos sin encontrar, hacer scroll suave dentro del menú
-            ; Usar el centro del área de juego y cantidad=1 (swipe corto) para no cerrar el popup
-            if (Inst_ErrCon[i] >= 4) {
+            ; Después de 2 intentos sin encontrar, hacer scroll abajo dentro del menú
+            ; Usar ScrollRelX pero con Y al 70% de la pantalla (más abajo que el centro)
+            ; para no tocar el borde del popup y cerrarlo
+            if (Inst_ErrCon[i] >= 2) {
                 GetClientOffset(hwnd, _ox, _oy, _cw, _ch)
-                ; Centro del área de juego en coordenadas de ventana
-                menuScrollX := _ox + (_cw // 2)
-                menuScrollY := _oy + (_ch // 2)
-                ; Scroll suave con cantidad=1 (distancia=40px, swipe muy corto)
-                if (Mod(Inst_ErrCon[i], 8) < 4) {
-                    IniciarScroll(i, hwnd, menuScrollX, menuScrollY, 1)
-                } else {
-                    IniciarScroll(i, hwnd, menuScrollX, menuScrollY, -1)
-                }
+                ; Y al 70% del área de juego (más abajo del centro, dentro del popup)
+                menuScrollY := _oy + (_ch * 70 // 100)
+                IniciarScroll(i, hwnd, ScrollRelX, menuScrollY, ScrollCantidad)
             }
             ; Después de 20 intentos, el menú probablemente se cerró — volver a modo 0
             if (Inst_ErrCon[i] >= 20) {
@@ -2521,7 +2516,9 @@ ProcesarInstancia(i) {
             HacerClicEnVentana(hwnd, foundX, foundY, i)
             Inst_P10Menu[i] := 1  ; Marcar que el menú está abierto
             Inst_ErrCon[i] := 0   ; Resetear contador para el modo menú
-            Inst_SkipTick[i] := 3  ; Esperar más para que la animación del menú termine
+            ; Esperar 3 segundos reales para que la animación del menú termine
+            intervaloActual := RR_Intervalo > 0 ? RR_Intervalo : IntervaloLoop
+            Inst_SkipTick[i] := Ceil(3000 / intervaloActual)
             ; Quedarse en P10: el siguiente tick buscará la expansión en modo menú
             return
         }
