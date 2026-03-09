@@ -52,6 +52,10 @@ global UmbralScanPopups := 15
 global ADB_Ruta := ""              ; Ruta al adb.exe (auto-detectada o manual)
 global ADB_Habilitado := false     ; true = usar ADB para clicks/swipes
 
+; Canvas para búsqueda de imágenes aislada (PrintWindow)
+global CanvasHwnd := 0
+global CanvasCreado := false
+
 ; Imágenes fijas (compartidas, no cambian por instancia)
 global IMG_VICTORIA := CarpetaImagenes . "\pantalla_victoria.bmp"
 global IMG_DERROTA  := CarpetaImagenes . "\pantalla_derrota.bmp"
@@ -745,6 +749,16 @@ CrearGUI() {
 
     ; --- Mostrar ventana ---
     Gui, Main:Show, w680 h870, Game Bot - Multi-Instancia (5)
+
+    ; --- Crear canvas oculto para búsqueda de imágenes aislada ---
+    ; Este canvas recibe el contenido capturado con PrintWindow para que
+    ; ImageSearch busque SOLO los píxeles de la ventana objetivo,
+    ; eliminando contaminación cruzada entre instancias.
+    Gui, Canvas: +LastFound +AlwaysOnTop -Caption +ToolWindow +E0x08000000
+    CanvasHwnd := WinExist()
+    Gui, Canvas:Show, x0 y0 w1 h1 NA Hide
+    CanvasCreado := true
+
     Log("=== Game Bot Multi-Instancia iniciado ===")
     Log("F12: Iniciar/Pausar todos | F11: Detener todos | F10: Reload")
 }
@@ -859,7 +873,7 @@ ArchivoExiste(ruta) {
 }
 
 BuscarImagenEnVentana(hwnd, ByRef rutaImagen, ByRef foundX, ByRef foundY) {
-    global Variacion
+    global Variacion, CanvasHwnd, CanvasCreado
 
     if !ArchivoExiste(rutaImagen)
         return false
@@ -868,17 +882,69 @@ BuscarImagenEnVentana(hwnd, ByRef rutaImagen, ByRef foundX, ByRef foundY) {
     if (ww = 0 || wh = 0)
         return false
 
-    x1 := wx
-    y1 := wy
-    x2 := wx + ww
-    y2 := wy + wh
+    ; === MÉTODO AISLADO: PrintWindow + Canvas ===
+    ; Captura el contenido PROPIO de la ventana (aislado de otras ventanas)
+    ; y lo pinta en un canvas AlwaysOnTop para que ImageSearch lo encuentre.
+    ; Esto elimina la contaminación cruzada entre instancias.
+    if (CanvasCreado && CanvasHwnd) {
+        ; Posicionar y redimensionar canvas sobre la ventana objetivo
+        DllCall("SetWindowPos", "Ptr", CanvasHwnd, "Ptr", -1  ; HWND_TOPMOST
+            , "Int", wx, "Int", wy, "Int", ww, "Int", wh
+            , "UInt", 0x0040 | 0x0010)  ; SWP_SHOWWINDOW | SWP_NOACTIVATE
+        DllCall("ValidateRect", "Ptr", CanvasHwnd, "Ptr", 0)
 
+        ; Capturar contenido de la ventana con PrintWindow
+        hdcCanvas := DllCall("GetDC", "Ptr", CanvasHwnd, "Ptr")
+        hdcMem := DllCall("CreateCompatibleDC", "Ptr", hdcCanvas, "Ptr")
+        hBitmap := DllCall("CreateCompatibleBitmap", "Ptr", hdcCanvas, "Int", ww, "Int", wh, "Ptr")
+        hOld := DllCall("SelectObject", "Ptr", hdcMem, "Ptr", hBitmap, "Ptr")
+
+        ; PW_RENDERFULLCONTENT = 2 (captura DirectX/OpenGL)
+        printOK := DllCall("PrintWindow", "Ptr", hwnd, "Ptr", hdcMem, "UInt", 2)
+
+        if (printOK) {
+            ; Pintar contenido capturado en el canvas
+            DllCall("BitBlt", "Ptr", hdcCanvas, "Int", 0, "Int", 0, "Int", ww, "Int", wh
+                , "Ptr", hdcMem, "Int", 0, "Int", 0, "UInt", 0x00CC0020)  ; SRCCOPY
+            DllCall("ValidateRect", "Ptr", CanvasHwnd, "Ptr", 0)
+        }
+
+        ; Liberar recursos GDI
+        DllCall("SelectObject", "Ptr", hdcMem, "Ptr", hOld)
+        DllCall("DeleteDC", "Ptr", hdcMem)
+        DllCall("ReleaseDC", "Ptr", CanvasHwnd, "Ptr", hdcCanvas)
+        DllCall("DeleteObject", "Ptr", hBitmap)
+
+        if (printOK) {
+            ; Buscar en el canvas (tiene el contenido aislado de la ventana)
+            x1 := wx, y1 := wy, x2 := wx + ww, y2 := wy + wh
+            ImageSearch, foundX, foundY, %x1%, %y1%, %x2%, %y2%, *%Variacion% %rutaImagen%
+
+            ; Ocultar canvas después de buscar
+            DllCall("ShowWindow", "Ptr", CanvasHwnd, "Int", 0)  ; SW_HIDE
+
+            if (ErrorLevel = 0) {
+                ObtenerDimensionesImagenCached(rutaImagen, imgW, imgH)
+                if (imgW > 0 && imgH > 0) {
+                    foundX := foundX + (imgW // 2)
+                    foundY := foundY + (imgH // 2)
+                }
+                return true
+            }
+            return false
+        }
+
+        ; PrintWindow falló — ocultar canvas y usar fallback
+        DllCall("ShowWindow", "Ptr", CanvasHwnd, "Int", 0)
+    }
+
+    ; === FALLBACK: Búsqueda en pantalla con validación WindowFromPoint ===
+    x1 := wx, y1 := wy, x2 := wx + ww, y2 := wy + wh
     ImageSearch, foundX, foundY, %x1%, %y1%, %x2%, %y2%, *%Variacion% %rutaImagen%
 
     if (ErrorLevel = 0) {
         ObtenerDimensionesImagenCached(rutaImagen, imgW, imgH)
         if (imgW > 0 && imgH > 0) {
-            ; Calcular centro de la imagen encontrada
             centroX := foundX + (imgW // 2)
             centroY := foundY + (imgH // 2)
         } else {
@@ -886,13 +952,11 @@ BuscarImagenEnVentana(hwnd, ByRef rutaImagen, ByRef foundX, ByRef foundY) {
             centroY := foundY
         }
 
-        ; Validar que el pixel encontrado pertenece a ESTA ventana
-        ; y no a otra ventana que se superpone encima
+        ; Validar que el pixel pertenece a ESTA ventana
         pt := (centroY << 32) | (centroX & 0xFFFFFFFF)
         hwndEnPunto := DllCall("WindowFromPoint", "Int64", pt, "Ptr")
-        hwndRaiz := DllCall("GetAncestor", "Ptr", hwndEnPunto, "UInt", 2, "Ptr")  ; GA_ROOT=2
+        hwndRaiz := DllCall("GetAncestor", "Ptr", hwndEnPunto, "UInt", 2, "Ptr")
         if (hwndRaiz + 0 != hwnd + 0) {
-            ; La imagen encontrada pertenece a otra ventana superpuesta
             return false
         }
 
@@ -1149,7 +1213,7 @@ HacerClicEnVentana(hwnd, screenX, screenY, instancia := 0) {
     if (ErrorLevel) {
         lParam := (relY << 16) | (relX & 0xFFFF)
         PostMessage, 0x201, 0x0001, %lParam%,, ahk_id %hwnd%
-        Sleep, 50
+        Sleep, 10
         PostMessage, 0x202, 0x0000, %lParam%,, ahk_id %hwnd%
     }
 }
@@ -1856,7 +1920,12 @@ LeerConfigGUI() {
 ; LOOP PRINCIPAL: Round-robin — procesa 1 instancia por tick para paralelismo
 ; ============================================================================
 LoopPrincipal:
-    Critical
+    ; Guardia de re-entrancia: si el tick anterior no terminó, saltar
+    ; (reemplaza Critical que bloqueaba TODOS los hilos incluyendo GUI y hotkeys)
+    static _loopEnProceso := false
+    if (_loopEnProceso)
+        return
+    _loopEnProceso := true
 
     ; Decrementar cooldowns de TODAS las instancias cada tick
     Loop, %MAX_INST% {
@@ -1890,7 +1959,7 @@ LoopPrincipal:
             if (Inst_Activo[A_Index])
                 ActualizarEstadoInst(A_Index)
         }
-        return
+        goto, _LoopFin
     }
 
     ; Verificar que la ventana sigue existiendo
@@ -1899,13 +1968,13 @@ LoopPrincipal:
         LogI(i, "ERROR: Ventana cerrada. Deteniendo instancia.")
         DetenerInstancia(i)
         FlushLog()
-        return
+        goto, _LoopFin
     }
 
     WinGetPos,,, ww, wh, ahk_id %hwnd%
     if (ww = 0 || wh = 0) {
         FlushLog()
-        return
+        goto, _LoopFin
     }
 
     ; Watchdog: si lleva demasiado tiempo sin éxito, forzar recuperación
@@ -1928,7 +1997,7 @@ LoopPrincipal:
         Inst_LastExito[i] := A_TickCount
         FlushLog()
         ActualizarEstadoInst(i)
-        return
+        goto, _LoopFin
     }
 
     ; Si hay una recuperación en curso, procesarla (1 popup por tick)
@@ -1936,7 +2005,7 @@ LoopPrincipal:
         ProcesarRecuperacion(i)
         FlushLog()
         ActualizarEstadoInst(i)
-        return
+        goto, _LoopFin
     }
 
     ; Si hay un scroll en curso, procesarlo en vez de la lógica normal
@@ -1945,7 +2014,7 @@ LoopPrincipal:
         if (resultado = 0) {
             FlushLog()
             ActualizarEstadoInst(i)
-            return
+            goto, _LoopFin
         }
         ; Scroll terminado: si encontró imagen post-scroll, actuar
         if (resultado = 2) {
@@ -1977,12 +2046,12 @@ LoopPrincipal:
             }
             FlushLog()
             ActualizarEstadoInst(i)
-            return
+            goto, _LoopFin
         }
         ; resultado = 1 o -1: scroll terminado, continuar lógica normal en siguiente tick
         FlushLog()
         ActualizarEstadoInst(i)
-        return
+        goto, _LoopFin
     }
 
     pasoAntes := Inst_Paso[i]
@@ -1996,6 +2065,9 @@ LoopPrincipal:
     ; Flush log y actualizar estado de esta instancia
     FlushLog()
     ActualizarEstadoInst(i)
+
+_LoopFin:
+    _loopEnProceso := false
 return
 
 ; ============================================================================
