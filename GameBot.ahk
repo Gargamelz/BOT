@@ -2474,10 +2474,22 @@ ProcesarInstancia(i) {
             Inst_ErrCon[i] := Inst_ErrCon[i] + 1
             if (Mod(Inst_ErrCon[i], 5) = 0)
                 LogI(i, "P10: Menú abierto, '" . nombreExpDest . "' no visible (" . Inst_ErrCon[i] . ")")
-            ; NO hacer scroll — el swipe ADB arrastra y cierra el menú popup
-            ; Solo esperar y reintentar búsqueda de imagen.
-            ; Si después de 10 intentos no aparece, el menú se cerró — volver a modo 0 para re-abrirlo
-            if (Inst_ErrCon[i] >= 10) {
+            ; Después de 4 intentos sin encontrar, hacer scroll suave dentro del menú
+            ; Usar el centro del área de juego y cantidad=1 (swipe corto) para no cerrar el popup
+            if (Inst_ErrCon[i] >= 4) {
+                GetClientOffset(hwnd, _ox, _oy, _cw, _ch)
+                ; Centro del área de juego en coordenadas de ventana
+                menuScrollX := _ox + (_cw // 2)
+                menuScrollY := _oy + (_ch // 2)
+                ; Scroll suave con cantidad=1 (distancia=40px, swipe muy corto)
+                if (Mod(Inst_ErrCon[i], 8) < 4) {
+                    IniciarScroll(i, hwnd, menuScrollX, menuScrollY, 1)
+                } else {
+                    IniciarScroll(i, hwnd, menuScrollX, menuScrollY, -1)
+                }
+            }
+            ; Después de 20 intentos, el menú probablemente se cerró — volver a modo 0
+            if (Inst_ErrCon[i] >= 20) {
                 LogI(i, "P10: Expansión no encontrada en menú. Reintentando abrir menú...")
                 Inst_P10Menu[i] := 0
                 Inst_ErrCon[i] := 0
@@ -2514,20 +2526,11 @@ ProcesarInstancia(i) {
             return
         }
 
-        ; 3) Scroll para buscar el botón Expansiones (solo en modo 0, nunca con menú abierto)
-        if (Inst_P10Int[i] <= 5) {
-            if (Inst_P10Int[i] = 2)
-                LogI(i, "P10: No visible. Scroll arriba...")
-            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2, 3)
-        } else if (Mod(Inst_P10Int[i], 6) < 3) {
-            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, ScrollCantidad)
-        } else {
-            IniciarScroll(i, hwnd, ScrollRelX, ScrollRelY, -ScrollCantidad * 2, 3)
-        }
-
+        ; 3) El botón Expansiones siempre está visible — no necesita scroll
+        ;    Si no se encontró ni la expansión ni el botón, solo reintentar
         Inst_ErrCon[i] := Inst_ErrCon[i] + 1
         if (Mod(Inst_ErrCon[i], 10) = 0)
-            LogI(i, "P10: '" . nombreExpDest . "' no encontrada (" . Inst_ErrCon[i] . " intentos)")
+            LogI(i, "P10: Ni expansión ni botón encontrados (" . Inst_ErrCon[i] . " intentos)")
 
         if (Inst_ErrCon[i] >= MaxErroresConsecutivos) {
             LogI(i, "P10: No pudo cambiar a '" . nombreExpDest . "'. Ir a P1.")
