@@ -1035,23 +1035,45 @@ ADB_Tap(i, relX, relY) {
     res := Inst_ADB_Res[i]
     hwnd := Inst_Hwnd[i]
 
-    ; Obtener offset del área cliente (sin barra de título)
+    ; relX/relY son coordenadas relativas a la ventana completa (WinGetPos).
+    ; Necesitamos convertirlas a coordenadas Android.
+    ;
+    ; La ventana de MuMu puede tener:
+    ;   - Barra de título del OS (detectada por GetClientRect)
+    ;   - Toolbar interna de MuMu (NO detectada por GetClientRect, está dentro del cliente)
+    ;
+    ; Para calcular el offset total, comparamos el tamaño del cliente con la
+    ; resolución Android. Si clientH > res.h (ajustado por proporción), hay
+    ; espacio extra (toolbar interna) que debemos contabilizar.
+
     GetClientOffset(hwnd, offsetX, offsetY, clientW, clientH)
 
-    ; Convertir coordenadas de ventana a coordenadas del área cliente
-    clientRelX := relX - offsetX
-    clientRelY := relY - offsetY
+    ; Paso 1: Convertir de coordenadas de ventana a coordenadas de área cliente
+    cX := relX - offsetX
+    cY := relY - offsetY
 
     if (clientW > 0 && clientH > 0 && res.w > 0 && res.h > 0) {
-        ; Mapear coordenadas del área cliente a resolución Android
-        adbX := Round(clientRelX * res.w / clientW)
-        adbY := Round(clientRelY * res.h / clientH)
+        ; Paso 2: Detectar toolbar interna de MuMu
+        ; Si Android es 960x540 (16:9) y el cliente es 960x570, hay 30px de toolbar
+        ; Calcular la altura que el juego DEBERÍA ocupar según la proporción Android
+        juegoW := clientW
+        juegoH := Round(clientW * res.h / res.w)  ; altura proporcional al ancho
+
+        ; Si el cliente es más alto que el juego, hay toolbar interna
+        toolbarInterna := 0
+        if (clientH > juegoH)
+            toolbarInterna := clientH - juegoH
+
+        ; La posición dentro del área de juego (sin toolbar)
+        gameY := cY - toolbarInterna
+
+        adbX := Round(cX * res.w / juegoW)
+        adbY := Round(gameY * res.h / juegoH)
     } else {
-        adbX := clientRelX
-        adbY := clientRelY
+        adbX := cX
+        adbY := cY
     }
 
-    ; Clamp para evitar coordenadas negativas (click en barra de título)
     if (adbX < 0)
         adbX := 0
     if (adbY < 0)
@@ -1068,25 +1090,32 @@ ADB_Swipe(i, relX, relYInicio, relYFin, duracionMs := 500) {
     res := Inst_ADB_Res[i]
     hwnd := Inst_Hwnd[i]
 
-    ; Obtener offset del área cliente (sin barra de título)
+    ; Mismo cálculo que ADB_Tap: ventana → cliente → juego → Android
     GetClientOffset(hwnd, offsetX, offsetY, clientW, clientH)
 
-    ; Convertir coordenadas de ventana a coordenadas del área cliente
-    cRelX := relX - offsetX
-    cRelYI := relYInicio - offsetY
-    cRelYF := relYFin - offsetY
+    cX := relX - offsetX
+    cYI := relYInicio - offsetY
+    cYF := relYFin - offsetY
 
     if (clientW > 0 && clientH > 0 && res.w > 0 && res.h > 0) {
-        adbX := Round(cRelX * res.w / clientW)
-        adbYI := Round(cRelYI * res.h / clientH)
-        adbYF := Round(cRelYF * res.h / clientH)
+        juegoW := clientW
+        juegoH := Round(clientW * res.h / res.w)
+        toolbarInterna := 0
+        if (clientH > juegoH)
+            toolbarInterna := clientH - juegoH
+
+        gameYI := cYI - toolbarInterna
+        gameYF := cYF - toolbarInterna
+
+        adbX := Round(cX * res.w / juegoW)
+        adbYI := Round(gameYI * res.h / juegoH)
+        adbYF := Round(gameYF * res.h / juegoH)
     } else {
-        adbX := cRelX
-        adbYI := cRelYI
-        adbYF := cRelYF
+        adbX := cX
+        adbYI := cYI
+        adbYF := cYF
     }
 
-    ; Clamp para evitar coordenadas negativas
     if (adbX < 0)
         adbX := 0
     if (adbYI < 0)
