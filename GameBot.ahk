@@ -2236,25 +2236,22 @@ ProcesarInstancia(i) {
 
         Inst_Estado[i] := "P5: Tap->Next (" . tapInt . "/" . MaxTapIntentos . ")"
 
-        ; Alternar: ticks impares buscan NEXT, pares buscan TAP (1 búsqueda por tick)
-        if (Mod(tapInt, 2) = 1) {
-            if (BuscarImagenEnVentana(hwnd, IMG_NEXT, foundX, foundY)) {
-                LogI(i, "Next encontrado. Clic...")
-                HacerClicEnVentana(hwnd, foundX, foundY, i)
-                Inst_ErrCon[i] := 0
-                Inst_TapInt[i] := 0
-                Inst_Paso[i] := Inst_RutaPN[i]
-                Inst_SkipTick[i] := 2
-                LogI(i, ">>> Volviendo a P" . Inst_RutaPN[i])
-                return
-            }
-        } else {
-            if (BuscarImagenEnVentana(hwnd, IMG_TAP, foundX, foundY)) {
-                LogI(i, "Tap encontrado. Clic...")
-                HacerClicEnVentana(hwnd, foundX, foundY, i)
-                Inst_SkipTick[i] := 2
-                return
-            }
+        ; Buscar AMBAS imágenes en cada tick — primero NEXT (avanza), luego TAP
+        if (BuscarImagenEnVentana(hwnd, IMG_NEXT, foundX, foundY)) {
+            LogI(i, "Next encontrado. Clic...")
+            HacerClicEnVentana(hwnd, foundX, foundY, i)
+            Inst_ErrCon[i] := 0
+            Inst_TapInt[i] := 0
+            Inst_Paso[i] := Inst_RutaPN[i]
+            Inst_SkipTick[i] := 2
+            LogI(i, ">>> Volviendo a P" . Inst_RutaPN[i])
+            return
+        }
+        if (BuscarImagenEnVentana(hwnd, IMG_TAP, foundX, foundY)) {
+            LogI(i, "Tap encontrado. Clic...")
+            HacerClicEnVentana(hwnd, foundX, foundY, i)
+            Inst_SkipTick[i] := 2
+            return
         }
 
         if (Mod(tapInt, 10) = 0)
