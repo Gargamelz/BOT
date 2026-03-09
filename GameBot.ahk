@@ -1161,7 +1161,7 @@ HacerClicEnVentana(hwnd, screenX, screenY, instancia := 0) {
 ; repeticiones: cuántas veces repetir el scroll (para scroll inverso grande)
 ; imgPostScroll: ruta de imagen a buscar después del scroll ("" = ninguna)
 ; ============================================================================
-IniciarScroll(i, hwnd, relX, relY, cantidad, repeticiones := 1, imgPostScroll := "") {
+IniciarScroll(i, hwnd, relX, relY, cantidad, repeticiones := 1, imgPostScroll := "", duracionSwipe := 0) {
     global
 
     if (!hwnd)
@@ -1183,10 +1183,14 @@ IniciarScroll(i, hwnd, relX, relY, cantidad, repeticiones := 1, imgPostScroll :=
         if (yFin < 10)
             yFin := 10
 
-        ; Duración proporcional a la distancia para un swipe suave
-        duracion := Abs(distancia) * 8
-        if (duracion < 300)
-            duracion := 300
+        ; Duración: usar la proporcionada o calcular proporcionalmente
+        if (duracionSwipe > 0) {
+            duracion := duracionSwipe
+        } else {
+            duracion := Abs(distancia) * 8
+        }
+        if (duracion < 100)
+            duracion := 100
         if (duracion > 1500)
             duracion := 1500
 
@@ -2472,19 +2476,20 @@ ProcesarInstancia(i) {
             }
             ; Menú abierto pero expansión no encontrada aún
             Inst_ErrCon[i] := Inst_ErrCon[i] + 1
-            if (Mod(Inst_ErrCon[i], 5) = 0)
+            if (Mod(Inst_ErrCon[i], 10) = 0)
                 LogI(i, "P10: Menú abierto, '" . nombreExpDest . "' no visible (" . Inst_ErrCon[i] . ")")
-            ; Después de 2 intentos sin encontrar, hacer scroll abajo dentro del menú
-            ; Usar ScrollRelX pero con Y al 70% de la pantalla (más abajo que el centro)
-            ; para no tocar el borde del popup y cerrarlo
-            if (Inst_ErrCon[i] >= 2) {
+            ; 10 chequeos seguros entre cada scroll — solo scroll ABAJO, nunca arriba
+            ; Cada 10 ticks sin encontrar: scroll rápido hacia abajo dentro del menú
+            if (Mod(Inst_ErrCon[i], 10) = 0 && Inst_ErrCon[i] > 0) {
                 GetClientOffset(hwnd, _ox, _oy, _cw, _ch)
-                ; Y al 70% del área de juego (más abajo del centro, dentro del popup)
+                ; Y al 70% del área de juego (dentro del popup, lejos del borde)
                 menuScrollY := _oy + (_ch * 70 // 100)
-                IniciarScroll(i, hwnd, ScrollRelX, menuScrollY, ScrollCantidad)
+                ; Scroll abajo rápido (duracion=200ms) con misma cantidad que batalla
+                IniciarScroll(i, hwnd, ScrollRelX, menuScrollY, ScrollCantidad, 1, "", 200)
+                LogI(i, "P10: Scroll abajo en menú (chequeo " . Inst_ErrCon[i] . ")")
             }
-            ; Después de 20 intentos, el menú probablemente se cerró — volver a modo 0
-            if (Inst_ErrCon[i] >= 20) {
+            ; Después de 80 intentos (8 scrolls con 10 chequeos cada uno), menú cerrado
+            if (Inst_ErrCon[i] >= 80) {
                 LogI(i, "P10: Expansión no encontrada en menú. Reintentando abrir menú...")
                 Inst_P10Menu[i] := 0
                 Inst_ErrCon[i] := 0
