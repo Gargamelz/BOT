@@ -323,32 +323,42 @@ CrearGUI() {
     ; Destruir GUI anterior si existe
     Gui, Main:Destroy
 
+    ; Layout de 2 columnas
+    ; Columna izquierda: x=10, w=460 (Ventana, Ajuste, Config, Scroll, ADB)
+    ; Columna derecha: x=480, w=460 (Inicio, Control, Estado, Log)
+    colL := 10
+    colR := 480
+    colW := 460
+
     ; Configurar fuente
     Gui, Main:Font, s9, Segoe UI
     Gui, Main:Color, 1a1a2e
 
+    ; ===================== COLUMNA IZQUIERDA =====================
+
     ; --- SECCIÓN: Selección de Ventana ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y10 w460 h100, SELECCIÓN DE VENTANA DEL JUEGO
+    Gui, Main:Add, GroupBox, x%colL% y10 w%colW% h100, SELECCIÓN DE VENTANA DEL JUEGO
 
     Gui, Main:Font, s9 cSilver Normal
-    Gui, Main:Add, Text, x25 y35, Ventana objetivo:
+    xL := colL + 15
+    Gui, Main:Add, Text, x%xL% y35, Ventana objetivo:
     Gui, Main:Font, s9 c0x00FF88
     ventanaTexto := (VentanaObjetivo != "") ? VentanaObjetivo : "(ninguna seleccionada)"
     Gui, Main:Add, Edit, x130 y32 w220 h22 vEditVentana ReadOnly, %ventanaTexto%
 
     Gui, Main:Font, s9 cWhite Normal
     Gui, Main:Add, Button, x360 y30 w100 h25 gDetectarVentana, DETECTAR (clic)
-    Gui, Main:Add, Button, x25 y65 w140 h30 gListarVentanas, Listar Ventanas
+    Gui, Main:Add, Button, x%xL% y65 w140 h30 gListarVentanas, Listar Ventanas
     Gui, Main:Add, Button, x175 y65 w140 h30 gEscribirVentana, Escribir Título
     Gui, Main:Add, Button, x325 y65 w135 h30 gVerificarVentana, Verificar Ventana
 
     ; --- SECCIÓN: Ajuste de Ventana ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y120 w460 h70, AJUSTE DE VENTANA (RESOLUCIÓN)
+    Gui, Main:Add, GroupBox, x%colL% y120 w%colW% h70, AJUSTE DE VENTANA (RESOLUCIÓN)
 
     Gui, Main:Font, s9 cSilver Normal
-    Gui, Main:Add, Text, x25 y145, Ancho:
+    Gui, Main:Add, Text, x%xL% y145, Ancho:
     Gui, Main:Add, Edit, x70 y142 w60 h22 vEditVentanaAncho, %VentanaAncho%
     Gui, Main:Add, Text, x140 y145, Alto:
     Gui, Main:Add, Edit, x175 y142 w60 h22 vEditVentanaAlto, %VentanaAlto%
@@ -356,14 +366,14 @@ CrearGUI() {
     Gui, Main:Add, Button, x250 y140 w105 h25 gAjustarVentana, Ajustar Ventana
     Gui, Main:Add, Button, x360 y140 w100 h25 gConsultarTamano, Ver Actual
     chkAutoVal := AutoAjustar ? "Checked" : ""
-    Gui, Main:Add, CheckBox, x25 y168 vChkAutoAjustar %chkAutoVal% cWhite, Auto-ajustar al iniciar bot
+    Gui, Main:Add, CheckBox, x%xL% y168 vChkAutoAjustar %chkAutoVal% cWhite, Auto-ajustar al iniciar bot
 
     ; --- SECCIÓN: Configuración ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y200 w460 h100, CONFIGURACIÓN
+    Gui, Main:Add, GroupBox, x%colL% y200 w%colW% h100, CONFIGURACIÓN
 
     Gui, Main:Font, s9 cSilver Normal
-    Gui, Main:Add, Text, x25 y225, Variación (tolerancia):
+    Gui, Main:Add, Text, x%xL% y225, Variación (tolerancia):
     Gui, Main:Add, Edit, x170 y222 w50 h22 vEditVariacion, %Variacion%
     Gui, Main:Add, UpDown, Range0-255, %Variacion%
 
@@ -371,7 +381,7 @@ CrearGUI() {
     Gui, Main:Add, Edit, x360 y222 w80 h22 vEditIntervalo, %IntervaloLoop%
     Gui, Main:Add, UpDown, Range100-10000, %IntervaloLoop%
 
-    Gui, Main:Add, Text, x25 y255, Max reintentos:
+    Gui, Main:Add, Text, x%xL% y255, Max reintentos:
     Gui, Main:Add, Edit, x170 y252 w50 h22 vEditReintentos, %MaxReintentos%
     Gui, Main:Add, UpDown, Range1-50, %MaxReintentos%
 
@@ -380,11 +390,11 @@ CrearGUI() {
 
     ; --- SECCIÓN: Swipe/Scroll Automático ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y310 w460 h120, SWIPE AUTOMÁTICO (scroll)
+    Gui, Main:Add, GroupBox, x%colL% y310 w%colW% h120, SWIPE AUTOMÁTICO (scroll)
 
     Gui, Main:Font, s9 cSilver Normal
     chkScrollVal := ScrollActivo ? "Checked" : ""
-    Gui, Main:Add, CheckBox, x25 y335 vChkScroll %chkScrollVal% cWhite, Activar swipe
+    Gui, Main:Add, CheckBox, x%xL% y335 vChkScroll %chkScrollVal% cWhite, Activar swipe
     Gui, Main:Add, Text, x150 y336 cSilver, X (rel):
     Gui, Main:Add, Edit, x195 y333 w55 h22 vEditScrollX, %ScrollRelX%
     Gui, Main:Add, Text, x260 y336 cSilver, Y (rel):
@@ -393,7 +403,7 @@ CrearGUI() {
     Gui, Main:Add, Edit, x415 y333 w45 h22 vEditScrollCant, %ScrollCantidad%
     Gui, Main:Add, UpDown, Range1-20, %ScrollCantidad%
 
-    Gui, Main:Add, Text, x25 y363 cSilver, Swipe en paso:
+    Gui, Main:Add, Text, x%xL% y363 cSilver, Swipe en paso:
     scrollPasoIndice := ScrollEnPaso + 1
     Gui, Main:Add, DropDownList, x120 y360 w195 vDDLScrollPaso Choose%scrollPasoIndice%, Todos los ciclos|Paso 1: Nivel|Paso 2: Auto|Paso 3: Iniciar
     Gui, Main:Add, Text, x325 y363 cSilver, Delay (ms):
@@ -401,32 +411,35 @@ CrearGUI() {
     Gui, Main:Add, UpDown, Range100-3000, %ScrollDelay%
 
     Gui, Main:Font, s9 cWhite Normal
-    Gui, Main:Add, Button, x25 y395 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
+    Gui, Main:Add, Button, x%xL% y395 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
     Gui, Main:Add, Button, x235 y395 w225 h25 gProbarScroll, Probar Swipe
 
     ; --- SECCIÓN: ADB (Opcional) ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y440 w460 h90, ADB (OPCIONAL - EMULADORES ANDROID)
+    Gui, Main:Add, GroupBox, x%colL% y440 w%colW% h90, ADB (OPCIONAL - EMULADORES ANDROID)
 
     Gui, Main:Font, s9 cSilver Normal
     chkAdbVal := ModoADB ? "Checked" : ""
-    Gui, Main:Add, CheckBox, x25 y463 vChkADB %chkAdbVal% cWhite, Usar ADB (input tap/swipe)
+    Gui, Main:Add, CheckBox, x%xL% y463 vChkADB %chkAdbVal% cWhite, Usar ADB (input tap/swipe)
     Gui, Main:Add, Text, x200 y464 cSilver, Device:
     Gui, Main:Add, Edit, x250 y461 w210 h22 vEditAdbDevice, %AdbDevice%
-    Gui, Main:Add, Text, x25 y493 cSilver, Resolución Android:
+    Gui, Main:Add, Text, x%xL% y493 cSilver, Resolución Android:
     Gui, Main:Add, Edit, x170 y490 w60 h22 vEditAdbResX, %AdbResX%
     Gui, Main:Add, Text, x235 y493 cSilver, x
     Gui, Main:Add, Edit, x250 y490 w60 h22 vEditAdbResY, %AdbResY%
     Gui, Main:Font, s9 cWhite Normal
     Gui, Main:Add, Button, x325 y488 w135 h25 gProbarADB, Probar ADB
 
+    ; ===================== COLUMNA DERECHA =====================
+    xR := colR + 15
+
     ; --- SECCIÓN: Inicio (Expansión, Batalla, Paso) ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y540 w460 h100, INICIO (EXPANSIÓN / BATALLA / PASO)
+    Gui, Main:Add, GroupBox, x%colR% y10 w%colW% h100, INICIO (EXPANSIÓN / BATALLA / PASO)
 
     Gui, Main:Font, s9 cSilver Normal
     ; Fila 1: Expansión y Batalla
-    Gui, Main:Add, Text, x25 y563 cSilver, Expansión:
+    Gui, Main:Add, Text, x%xR% y33 cSilver, Expansión:
     ; Construir lista de expansiones disponibles (las que tienen batallas)
     listaExp := ""
     Loop, %TotalExpansiones% {
@@ -434,9 +447,11 @@ CrearGUI() {
             listaExp .= "|"
         listaExp .= A_Index . ": " . ExpansionNombres[A_Index]
     }
-    Gui, Main:Add, DropDownList, x90 y560 w200 vDDLExpansion Choose1 gCambiarExpansionGUI, %listaExp%
+    xExpDDL := colR + 80
+    Gui, Main:Add, DropDownList, x%xExpDDL% y30 w200 vDDLExpansion Choose1 gCambiarExpansionGUI, %listaExp%
 
-    Gui, Main:Add, Text, x300 y563 cSilver, Batalla:
+    xBatText := colR + 290
+    Gui, Main:Add, Text, x%xBatText% y33 cSilver, Batalla:
     ; Construir lista de batallas de la expansión actual
     listaBat := ""
     Loop, %TotalBatallas% {
@@ -444,41 +459,49 @@ CrearGUI() {
             listaBat .= "|"
         listaBat .= A_Index . ": " . BatallaNombres[A_Index]
     }
-    Gui, Main:Add, DropDownList, x350 y560 w110 vDDLBatalla Choose1, %listaBat%
+    xBatDDL := colR + 340
+    Gui, Main:Add, DropDownList, x%xBatDDL% y30 w110 vDDLBatalla Choose1, %listaBat%
 
     ; Fila 2: Paso
-    Gui, Main:Add, Text, x25 y593 cSilver, Paso:
-    Gui, Main:Add, DropDownList, x65 y590 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla|9: CerrarX|10: CambiarExpansion|11: SeleccionarExpansion
+    Gui, Main:Add, Text, x%xR% y63 cSilver, Paso:
+    xPasoDDL := colR + 55
+    Gui, Main:Add, DropDownList, x%xPasoDDL% y60 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla|9: CerrarX|10: CambiarExpansion|11: SeleccionarExpansion
 
     ; --- SECCIÓN: Control del Bot ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y650 w460 h90, CONTROL DEL BOT
+    Gui, Main:Add, GroupBox, x%colR% y120 w%colW% h70, CONTROL DEL BOT
 
     Gui, Main:Font, s9 cWhite Normal
-    Gui, Main:Add, Button, x25 y675 w140 h25 gIniciarBot, INICIAR (F12)
-    Gui, Main:Add, Button, x175 y675 w140 h25 gPausarBot, PAUSAR (F12)
-    Gui, Main:Add, Button, x325 y675 w135 h25 gDetenerBot, DETENER (F11)
-    Gui, Main:Add, Button, x25 y708 w200 h25 gNuevaInstancia, NUEVA INSTANCIA
+    Gui, Main:Add, Button, x%xR% y143 w105 h25 gIniciarBot, INICIAR (F12)
+    xPausar := colR + 130
+    Gui, Main:Add, Button, x%xPausar% y143 w105 h25 gPausarBot, PAUSAR (F12)
+    xDetener := colR + 245
+    Gui, Main:Add, Button, x%xDetener% y143 w100 h25 gDetenerBot, DETENER (F11)
+    xNueva := colR + 355
+    Gui, Main:Add, Button, x%xNueva% y143 w95 h25 gNuevaInstancia, +INSTANCIA
+    Gui, Main:Add, Text, x%xR% y170 cSilver, Instancia: %NumeroInstancia%
 
     ; --- SECCIÓN: Estado ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y750 w460 h50, ESTADO
+    Gui, Main:Add, GroupBox, x%colR% y200 w%colW% h45, ESTADO
 
     Gui, Main:Font, s11 c0x00FF88 Bold
-    Gui, Main:Add, Text, x25 y772 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
+    xEstado := colR + 15
+    Gui, Main:Add, Text, x%xEstado% y220 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
 
     ; --- SECCIÓN: Log de Depuración ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y810 w460 h220, LOG DE DEPURACIÓN
+    Gui, Main:Add, GroupBox, x%colR% y255 w%colW% h275, LOG DE DEPURACIÓN
 
     Gui, Main:Font, s8 c0x00FF88 Normal, Consolas
-    Gui, Main:Add, Edit, x25 y835 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
+    xLog := colR + 15
+    Gui, Main:Add, Edit, x%xLog% y278 w435 h242 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
 
-    ; --- Mostrar ventana ---
+    ; --- Mostrar ventana (2 columnas: 950px ancho, 540px alto) ---
     tituloGui := "Game Bot - AutoHotkey v1.1"
     if (NumeroInstancia > 1)
         tituloGui .= " [Instancia " . NumeroInstancia . "]"
-    Gui, Main:Show, w480 h1045, %tituloGui%
+    Gui, Main:Show, w950 h540, %tituloGui%
     Log("=== Game Bot iniciado ===")
     if (NumeroInstancia > 1)
         Log("Instancia #" . NumeroInstancia . " | Config: " . ArchivoConfig)
