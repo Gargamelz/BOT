@@ -9,11 +9,19 @@
 ; ============================================================================
 
 #NoEnv
-#SingleInstance, Force
+#SingleInstance, Off
 #Persistent
 SetWorkingDir, %A_ScriptDir%
 SetBatchLines, -1
-CoordMode, Pixel, Screen
+
+; Multi-instancia: leer número de instancia desde argumentos de línea de comandos
+global NumeroInstancia := 1
+if (A_Args.Length() > 0 && A_Args[1] > 0)
+    NumeroInstancia := A_Args[1] + 0
+
+; Incluir librerías
+#Include %A_ScriptDir%\Lib\GdipSearch.ahk
+#Include %A_ScriptDir%\Lib\AdbShell.ahk
 
 ; ============================================================================
 ; VARIABLES GLOBALES
@@ -27,7 +35,15 @@ global IntervaloLoop := 1000           ; Milisegundos entre cada ciclo
 global MaxReintentos := 5              ; Reintentos antes de cambiar estrategia
 global ModoDebug := true               ; Mostrar logs en la GUI
 global CarpetaImagenes := A_ScriptDir . "\imagenes"
-global ArchivoConfig := A_ScriptDir . "\config.ini"
+global ArchivoConfig := (NumeroInstancia > 1)
+    ? A_ScriptDir . "\config_" . NumeroInstancia . ".ini"
+    : A_ScriptDir . "\config.ini"
+
+; ADB (opcional - para emuladores Android)
+global ModoADB := false                  ; Usar ADB en vez de ControlClick
+global AdbDevice := ""                   ; Serial del dispositivo (ej: "127.0.0.1:5555")
+global AdbResX := 1080                   ; Resolución Android ancho
+global AdbResY := 1920                   ; Resolución Android alto
 
 ; Ajuste de ventana (resolución objetivo para ImageSearch)
 global VentanaAncho := 960              ; Ancho objetivo en píxeles
@@ -165,6 +181,7 @@ if !FileExist(CarpetaImagenes)
 ; CARGAR CONFIGURACIÓN GUARDADA Y CREAR GUI
 ; ============================================================================
 CargarConfig()
+Gdip_Iniciar()
 CrearGUI()
 return
 
@@ -175,6 +192,7 @@ GuardarConfig() {
     global ArchivoConfig, VentanaObjetivo, Variacion, IntervaloLoop, MaxReintentos, ModoDebug
     global VentanaAncho, VentanaAlto, AutoAjustar
     global ScrollActivo, ScrollRelX, ScrollRelY, ScrollCantidad, ScrollDelay, ScrollEnPaso
+    global ModoADB, AdbDevice, AdbResX, AdbResY
 
     ; Leer valores actuales de la GUI (por si el usuario cambió algo sin iniciar el bot)
     GuiControlGet, tmpVariacion, Main:, EditVariacion
@@ -219,6 +237,16 @@ GuardarConfig() {
     IniWrite, %tmpScrollCant%, %ArchivoConfig%, Scroll, ScrollCantidad
     IniWrite, %tmpScrollDelay%, %ArchivoConfig%, Scroll, ScrollDelay
     IniWrite, %tmpScrollEnPaso%, %ArchivoConfig%, Scroll, ScrollEnPaso
+
+    ; Sección ADB
+    GuiControlGet, tmpADB, Main:, ChkADB
+    GuiControlGet, tmpAdbDevice, Main:, EditAdbDevice
+    GuiControlGet, tmpAdbResX, Main:, EditAdbResX
+    GuiControlGet, tmpAdbResY, Main:, EditAdbResY
+    IniWrite, %tmpADB%, %ArchivoConfig%, ADB, ModoADB
+    IniWrite, %tmpAdbDevice%, %ArchivoConfig%, ADB, AdbDevice
+    IniWrite, %tmpAdbResX%, %ArchivoConfig%, ADB, AdbResX
+    IniWrite, %tmpAdbResY%, %ArchivoConfig%, ADB, AdbResY
 }
 
 ; ============================================================================
@@ -228,6 +256,7 @@ CargarConfig() {
     global ArchivoConfig, VentanaObjetivo, Variacion, IntervaloLoop, MaxReintentos, ModoDebug
     global VentanaAncho, VentanaAlto, AutoAjustar
     global ScrollActivo, ScrollRelX, ScrollRelY, ScrollCantidad, ScrollDelay, ScrollEnPaso
+    global ModoADB, AdbDevice, AdbResX, AdbResY
 
     ; Si no existe el archivo, usar los valores por defecto (ya definidos en variables globales)
     if !FileExist(ArchivoConfig)
@@ -266,6 +295,15 @@ CargarConfig() {
     ScrollDelay := tmp + 0
     IniRead, tmp, %ArchivoConfig%, Scroll, ScrollEnPaso, %ScrollEnPaso%
     ScrollEnPaso := tmp + 0
+
+    ; Sección ADB
+    IniRead, tmp, %ArchivoConfig%, ADB, ModoADB, 0
+    ModoADB := tmp + 0
+    IniRead, AdbDevice, %ArchivoConfig%, ADB, AdbDevice, %AdbDevice%
+    IniRead, tmp, %ArchivoConfig%, ADB, AdbResX, %AdbResX%
+    AdbResX := tmp + 0
+    IniRead, tmp, %ArchivoConfig%, ADB, AdbResY, %AdbResY%
+    AdbResY := tmp + 0
 }
 
 ; ============================================================================
@@ -275,9 +313,12 @@ CrearGUI() {
     global EditVentana, EditVariacion, EditIntervalo, EditReintentos, ChkDebug, TextoEstado, LogText
     global ChkScroll, EditScrollX, EditScrollY, EditScrollCant, EditScrollDelay, DDLScrollPaso
     global EditVentanaAncho, EditVentanaAlto, ChkAutoAjustar
+    global ChkADB, EditAdbDevice, EditAdbResX, EditAdbResY
     global VentanaObjetivo, Variacion, IntervaloLoop, MaxReintentos, ModoDebug
     global VentanaAncho, VentanaAlto, AutoAjustar
     global ScrollActivo, ScrollRelX, ScrollRelY, ScrollCantidad, ScrollDelay, ScrollEnPaso
+    global ModoADB, AdbDevice, AdbResX, AdbResY
+    global NumeroInstancia
 
     ; Destruir GUI anterior si existe
     Gui, Main:Destroy
@@ -363,13 +404,29 @@ CrearGUI() {
     Gui, Main:Add, Button, x25 y395 w200 h25 gSeleccionarPuntoScroll, Seleccionar Punto (clic)
     Gui, Main:Add, Button, x235 y395 w225 h25 gProbarScroll, Probar Swipe
 
+    ; --- SECCIÓN: ADB (Opcional) ---
+    Gui, Main:Font, s10 cWhite Bold
+    Gui, Main:Add, GroupBox, x10 y440 w460 h90, ADB (OPCIONAL - EMULADORES ANDROID)
+
+    Gui, Main:Font, s9 cSilver Normal
+    chkAdbVal := ModoADB ? "Checked" : ""
+    Gui, Main:Add, CheckBox, x25 y463 vChkADB %chkAdbVal% cWhite, Usar ADB (input tap/swipe)
+    Gui, Main:Add, Text, x200 y464 cSilver, Device:
+    Gui, Main:Add, Edit, x250 y461 w210 h22 vEditAdbDevice, %AdbDevice%
+    Gui, Main:Add, Text, x25 y493 cSilver, Resolución Android:
+    Gui, Main:Add, Edit, x170 y490 w60 h22 vEditAdbResX, %AdbResX%
+    Gui, Main:Add, Text, x235 y493 cSilver, x
+    Gui, Main:Add, Edit, x250 y490 w60 h22 vEditAdbResY, %AdbResY%
+    Gui, Main:Font, s9 cWhite Normal
+    Gui, Main:Add, Button, x325 y488 w135 h25 gProbarADB, Probar ADB
+
     ; --- SECCIÓN: Inicio (Expansión, Batalla, Paso) ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y440 w460 h100, INICIO (EXPANSIÓN / BATALLA / PASO)
+    Gui, Main:Add, GroupBox, x10 y540 w460 h100, INICIO (EXPANSIÓN / BATALLA / PASO)
 
     Gui, Main:Font, s9 cSilver Normal
     ; Fila 1: Expansión y Batalla
-    Gui, Main:Add, Text, x25 y463 cSilver, Expansión:
+    Gui, Main:Add, Text, x25 y563 cSilver, Expansión:
     ; Construir lista de expansiones disponibles (las que tienen batallas)
     listaExp := ""
     Loop, %TotalExpansiones% {
@@ -377,9 +434,9 @@ CrearGUI() {
             listaExp .= "|"
         listaExp .= A_Index . ": " . ExpansionNombres[A_Index]
     }
-    Gui, Main:Add, DropDownList, x90 y460 w200 vDDLExpansion Choose1 gCambiarExpansionGUI, %listaExp%
+    Gui, Main:Add, DropDownList, x90 y560 w200 vDDLExpansion Choose1 gCambiarExpansionGUI, %listaExp%
 
-    Gui, Main:Add, Text, x300 y463 cSilver, Batalla:
+    Gui, Main:Add, Text, x300 y563 cSilver, Batalla:
     ; Construir lista de batallas de la expansión actual
     listaBat := ""
     Loop, %TotalBatallas% {
@@ -387,38 +444,44 @@ CrearGUI() {
             listaBat .= "|"
         listaBat .= A_Index . ": " . BatallaNombres[A_Index]
     }
-    Gui, Main:Add, DropDownList, x350 y460 w110 vDDLBatalla Choose1, %listaBat%
+    Gui, Main:Add, DropDownList, x350 y560 w110 vDDLBatalla Choose1, %listaBat%
 
     ; Fila 2: Paso
-    Gui, Main:Add, Text, x25 y493 cSilver, Paso:
-    Gui, Main:Add, DropDownList, x65 y490 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla|9: CerrarX|10: CambiarExpansion|11: SeleccionarExpansion
+    Gui, Main:Add, Text, x25 y593 cSilver, Paso:
+    Gui, Main:Add, DropDownList, x65 y590 w395 vDDLPasoInicio Choose1, 1: SeleccionBatalla|2: Auto|3: Iniciar|4: Resultado|5: Tap hasta Next|6: NuevaBatalla|7: OK|8: SiguienteBatalla|9: CerrarX|10: CambiarExpansion|11: SeleccionarExpansion
 
     ; --- SECCIÓN: Control del Bot ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y550 w460 h60, CONTROL DEL BOT
+    Gui, Main:Add, GroupBox, x10 y650 w460 h90, CONTROL DEL BOT
 
     Gui, Main:Font, s9 cWhite Normal
-    Gui, Main:Add, Button, x25 y575 w140 h25 gIniciarBot, INICIAR (F12)
-    Gui, Main:Add, Button, x175 y575 w140 h25 gPausarBot, PAUSAR (F12)
-    Gui, Main:Add, Button, x325 y575 w135 h25 gDetenerBot, DETENER (F11)
+    Gui, Main:Add, Button, x25 y675 w140 h25 gIniciarBot, INICIAR (F12)
+    Gui, Main:Add, Button, x175 y675 w140 h25 gPausarBot, PAUSAR (F12)
+    Gui, Main:Add, Button, x325 y675 w135 h25 gDetenerBot, DETENER (F11)
+    Gui, Main:Add, Button, x25 y708 w200 h25 gNuevaInstancia, NUEVA INSTANCIA
 
     ; --- SECCIÓN: Estado ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y620 w460 h50, ESTADO
+    Gui, Main:Add, GroupBox, x10 y750 w460 h50, ESTADO
 
     Gui, Main:Font, s11 c0x00FF88 Bold
-    Gui, Main:Add, Text, x25 y642 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
+    Gui, Main:Add, Text, x25 y772 w440 h20 vTextoEstado, Estado: DETENIDO  |  Ciclos: 0  |  Ataques: 0  |  Errores: 0
 
     ; --- SECCIÓN: Log de Depuración ---
     Gui, Main:Font, s10 cWhite Bold
-    Gui, Main:Add, GroupBox, x10 y680 w460 h220, LOG DE DEPURACIÓN
+    Gui, Main:Add, GroupBox, x10 y810 w460 h220, LOG DE DEPURACIÓN
 
     Gui, Main:Font, s8 c0x00FF88 Normal, Consolas
-    Gui, Main:Add, Edit, x25 y705 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
+    Gui, Main:Add, Edit, x25 y835 w435 h185 vLogText ReadOnly Multi VScroll HScroll -Wrap BackgroundBlack,
 
     ; --- Mostrar ventana ---
-    Gui, Main:Show, w480 h915, Game Bot - AutoHotkey v1.1
+    tituloGui := "Game Bot - AutoHotkey v1.1"
+    if (NumeroInstancia > 1)
+        tituloGui .= " [Instancia " . NumeroInstancia . "]"
+    Gui, Main:Show, w480 h1045, %tituloGui%
     Log("=== Game Bot iniciado ===")
+    if (NumeroInstancia > 1)
+        Log("Instancia #" . NumeroInstancia . " | Config: " . ArchivoConfig)
     Log("Carpeta de imágenes: " . CarpetaImagenes)
     Log("Presiona F12 para iniciar/pausar, F11 para detener")
     Log("Primero selecciona la ventana del juego arriba")
@@ -828,7 +891,7 @@ DetectarVentana:
     MouseGetPos,,, hwndBajoCursor
     WinGetTitle, tituloDetectado, ahk_id %hwndBajoCursor%
 
-    if (tituloDetectado = "" || tituloDetectado = "Game Bot - AutoHotkey v1.1") {
+    if (tituloDetectado = "" || InStr(tituloDetectado, "Game Bot - AutoHotkey v1.1")) {
         Log("ERROR: No se detecto una ventana valida")
         MsgBox, 16, Error, No se detectó una ventana válida.`nAsegúrate de hacer clic en la ventana del juego.
         return
@@ -856,7 +919,7 @@ ListarVentanas:
     Loop, %ids% {
         id := ids%A_Index%
         WinGetTitle, titulo, ahk_id %id%
-        if (titulo != "" && titulo != "Game Bot - AutoHotkey v1.1" && titulo != "Program Manager") {
+        if (titulo != "" && !InStr(titulo, "Game Bot - AutoHotkey v1.1") && titulo != "Program Manager") {
             if (lista != "")
                 lista .= "|"
             lista .= titulo
@@ -1046,6 +1109,23 @@ IniciarBot:
         }
     }
 
+    ; Leer valores ADB de la GUI
+    GuiControlGet, ChkADB, Main:
+    ModoADB := ChkADB
+    GuiControlGet, AdbDevice, Main:, EditAdbDevice
+    GuiControlGet, tmpResX, Main:, EditAdbResX
+    GuiControlGet, tmpResY, Main:, EditAdbResY
+    AdbResX := tmpResX + 0
+    AdbResY := tmpResY + 0
+
+    ; Iniciar ADB si está activado
+    if (ModoADB) {
+        if (AdbShell_Iniciar(AdbDevice))
+            Log("ADB shell conectado" . (AdbDevice != "" ? " (" . AdbDevice . ")" : ""))
+        else
+            Log("ERROR: No se pudo conectar ADB shell. Verifica que adb esté instalado y el emulador conectado.")
+    }
+
     BotActivo := true
     BotPausado := false
     PasoActual := PasoInicioSeleccionado
@@ -1100,6 +1180,8 @@ DetenerBot:
     Paso10Intentos := 0
     Paso11Intentos := 0
     SetTimer, LoopPrincipal, Off
+    if (ModoADB)
+        AdbShell_Cerrar()
     Log("=== BOT DETENIDO ===")
     ActualizarEstado()
 return
@@ -1664,36 +1746,25 @@ BuscarImagenEnVentana(ByRef rutaImagen, ByRef foundX, ByRef foundY) {
     global VentanaObjetivo, Variacion
 
     ; Verificar que el archivo de imagen existe
-    if !FileExist(rutaImagen) {
-        return false
-    }
-
-    ; Obtener posición de la ventana en la pantalla
-    WinGetPos, wx, wy, ww, wh, %VentanaObjetivo%
-
-    if (ww = 0 || wh = 0)
+    if !FileExist(rutaImagen)
         return false
 
-    ; Calcular coordenadas de búsqueda (área de la ventana)
-    x1 := wx
-    y1 := wy
-    x2 := wx + ww
-    y2 := wy + wh
+    WinGet, hwnd, ID, %VentanaObjetivo%
+    if (!hwnd)
+        return false
 
-    ; Buscar la imagen con tolerancia alta
-    ImageSearch, foundX, foundY, %x1%, %y1%, %x2%, %y2%, *%Variacion% %rutaImagen%
+    ; Búsqueda GDI+ (PrintWindow) → retorna coords client-relative del centro
+    if (!BuscarImagenGDI(hwnd, rutaImagen, cx, cy, Variacion))
+        return false
 
-    if (ErrorLevel = 0) {
-        ; Ajustar coordenadas al centro de la imagen encontrada
-        ObtenerDimensionesImagen(rutaImagen, imgW, imgH)
-        if (imgW > 0 && imgH > 0) {
-            foundX := foundX + (imgW // 2)
-            foundY := foundY + (imgH // 2)
-        }
-        return true    ; Imagen encontrada
-    }
-
-    return false       ; No encontrada o error
+    ; Convertir client-relative → screen coords (para compatibilidad con HacerClicEnVentana)
+    VarSetCapacity(pt, 8, 0)
+    NumPut(cx, pt, 0, "Int")
+    NumPut(cy, pt, 4, "Int")
+    DllCall("ClientToScreen", "Ptr", hwnd, "Ptr", &pt)
+    foundX := NumGet(pt, 0, "Int")
+    foundY := NumGet(pt, 4, "Int")
+    return true
 }
 
 ; ============================================================================
@@ -1702,14 +1773,27 @@ BuscarImagenEnVentana(ByRef rutaImagen, ByRef foundX, ByRef foundY) {
 ; relativas a la ventana para ControlClick
 ; ============================================================================
 HacerClicEnVentana(screenX, screenY) {
-    global VentanaObjetivo
+    global VentanaObjetivo, ModoADB, AdbDevice, AdbResX, AdbResY
 
-    ; Obtener posición de la ventana
+    ; Convertir screen → window-relative
     WinGetPos, wx, wy,,, %VentanaObjetivo%
-
-    ; Convertir coordenadas de pantalla a coordenadas relativas a la ventana
     relX := screenX - wx
     relY := screenY - wy
+
+    if (ModoADB) {
+        ; Convertir screen → client-relative → Android coords
+        WinGet, hwnd, ID, %VentanaObjetivo%
+        VarSetCapacity(pt, 8, 0)
+        NumPut(screenX, pt, 0, "Int")
+        NumPut(screenY, pt, 4, "Int")
+        DllCall("ScreenToClient", "Ptr", hwnd, "Ptr", &pt)
+        clientX := NumGet(pt, 0, "Int")
+        clientY := NumGet(pt, 4, "Int")
+        ClientToAndroid(hwnd, clientX, clientY, AdbResX, AdbResY, ax, ay)
+        AdbShell_Tap(ax, ay, AdbDevice)
+        Log("ADB tap (" . ax . ", " . ay . ") [client: " . clientX . "," . clientY . "]")
+        return
+    }
 
     ; Hacer clic virtual usando ControlClick (no mueve el mouse real)
     ControlClick, x%relX% y%relY%, %VentanaObjetivo%,, Left, 1, NA
@@ -1737,7 +1821,7 @@ HacerClicEnVentana(screenX, screenY) {
 ; cantidad: multiplicador de distancia (cada unidad = 40px de arrastre)
 ; ============================================================================
 HacerScrollEnVentana(relX, relY, cantidad) {
-    global VentanaObjetivo
+    global VentanaObjetivo, ModoADB, AdbDevice, AdbResX, AdbResY
 
     ; Calcular distancia total del swipe
     distancia := cantidad * 40
@@ -1745,6 +1829,17 @@ HacerScrollEnVentana(relX, relY, cantidad) {
     yFin := relY - (distancia // 2)      ; Punto superior (donde termina el dedo)
     if (yFin < 10)
         yFin := 10
+
+    if (ModoADB) {
+        ; Swipe via ADB
+        WinGet, hwndPadre, ID, %VentanaObjetivo%
+        ClientToAndroid(hwndPadre, relX, yInicio, AdbResX, AdbResY, ax1, ay1)
+        ClientToAndroid(hwndPadre, relX, yFin, AdbResX, AdbResY, ax2, ay2)
+        duracion := 300 + (cantidad * 50)
+        AdbShell_Swipe(ax1, ay1, ax2, ay2, duracion, AdbDevice)
+        Log("ADB swipe (" . ax1 . "," . ay1 . ") -> (" . ax2 . "," . ay2 . ") dur=" . duracion . "ms")
+        return
+    }
 
     ; Obtener HWND de la ventana padre
     WinGet, hwndPadre, ID, %VentanaObjetivo%
@@ -2005,6 +2100,8 @@ MainGuiEscape:
     IfMsgBox, Yes
     {
         SetTimer, LoopPrincipal, Off
+        AdbShell_Cerrar()
+        Gdip_Terminar()
         GuardarConfig()
         ExitApp
     }
@@ -2013,4 +2110,28 @@ return
 ListaGuiClose:
 ListaGuiEscape:
     Gui, Lista:Destroy
+return
+
+; ============================================================================
+; LABEL: Probar conexión ADB
+; ============================================================================
+ProbarADB:
+    GuiControlGet, tmpDevice, Main:, EditAdbDevice
+    if (AdbShell_Iniciar(tmpDevice)) {
+        Log("ADB OK: conexión exitosa" . (tmpDevice != "" ? " (" . tmpDevice . ")" : ""))
+        MsgBox, 64, ADB, Conexión ADB exitosa.
+        AdbShell_Cerrar()
+    } else {
+        Log("ERROR ADB: no se pudo conectar")
+        MsgBox, 16, ADB, No se pudo conectar al shell ADB.`n`nVerifica:`n- adb está instalado y en PATH`n- El emulador está corriendo`n- El device serial es correcto
+    }
+return
+
+; ============================================================================
+; LABEL: Lanzar nueva instancia del bot
+; ============================================================================
+NuevaInstancia:
+    siguienteInst := NumeroInstancia + 1
+    Run, "%A_AhkPath%" "%A_ScriptFullPath%" %siguienteInst%
+    Log("Lanzada instancia #" . siguienteInst)
 return
