@@ -2,67 +2,160 @@
 ; ADB SHELL PERSISTENTE - Envía taps y swipes via shell interactivo
 ; Mantiene una sesión adb shell abierta para evitar el overhead de crear
 ; un proceso nuevo por cada comando (~200ms vs ~2000ms).
+; Usa CreateProcessW con CREATE_NO_WINDOW para evitar ventanas CMD visibles.
 ; ============================================================================
 
-global _AdbShell := ""
-global _AdbVivo := false
+global _AdbShell_hProcess := 0
+global _AdbShell_hStdinWrite := 0
+global _AdbShell_Vivo := false
 
 ; ============================================================================
-; Iniciar shell ADB persistente
+; Iniciar shell ADB persistente (sin ventana CMD visible)
 ; adbDevice: serial del dispositivo (ej: "127.0.0.1:5555"), "" para default
 ; ============================================================================
 AdbShell_Iniciar(adbDevice := "") {
-    global _AdbShell, _AdbVivo
+    global _AdbShell_hProcess, _AdbShell_hStdinWrite, _AdbShell_Vivo
 
     ; Si ya hay un shell vivo, no crear otro
-    if (_AdbVivo && _AdbShell && _AdbShell.Status = 0)
-        return true
-
-    try {
-        wsh := ComObjCreate("WScript.Shell")
-        cmd := "adb"
-        if (adbDevice != "")
-            cmd .= " -s " . adbDevice
-        cmd .= " shell"
-        _AdbShell := wsh.Exec(cmd)
-        Sleep, 500
-
-        if (_AdbShell.Status = 0) {
-            _AdbVivo := true
+    if (_AdbShell_Vivo && _AdbShell_hProcess) {
+        ; Verificar que el proceso sigue vivo
+        exitCode := 0
+        DllCall("GetExitCodeProcess", "Ptr", _AdbShell_hProcess, "UInt*", exitCode)
+        if (exitCode = 259)  ; STILL_ACTIVE
             return true
-        }
-    } catch e {
-        ; Error al crear shell (adb no instalado, device no conectado, etc.)
+        ; El proceso murió, limpiamos y reconectamos
+        AdbShell_Cerrar()
     }
-    _AdbVivo := false
-    return false
+
+    ; --- Crear pipe para stdin ---
+    ; SECURITY_ATTRIBUTES con bInheritHandle = TRUE
+    VarSetCapacity(saAttr, A_PtrSize == 8 ? 24 : 12, 0)
+    NumPut(A_PtrSize == 8 ? 24 : 12, saAttr, 0, "UInt")  ; nLength
+    NumPut(1, saAttr, A_PtrSize == 8 ? 16 : 8, "Int")     ; bInheritHandle = TRUE
+
+    hStdinRead := 0
+    hStdinWrite := 0
+    if !DllCall("CreatePipe", "Ptr*", hStdinRead, "Ptr*", hStdinWrite, "Ptr", &saAttr, "UInt", 0) {
+        return false
+    }
+
+    ; El extremo de escritura NO debe ser heredable (solo el de lectura va al hijo)
+    DllCall("SetHandleInformation", "Ptr", hStdinWrite, "UInt", 1, "UInt", 0)
+
+    ; --- Preparar STARTUPINFOW ---
+    siSize := A_PtrSize == 8 ? 104 : 68
+    VarSetCapacity(si, siSize, 0)
+    NumPut(siSize, si, 0, "UInt")  ; cb
+
+    ; dwFlags = STARTF_USESTDHANDLES (0x100)
+    flagsOffset := A_PtrSize == 8 ? 60 : 44
+    NumPut(0x100, si, flagsOffset, "UInt")
+
+    ; hStdInput = pipe read end
+    hStdInputOffset := A_PtrSize == 8 ? 80 : 56
+    NumPut(hStdinRead, si, hStdInputOffset, "Ptr")
+
+    ; hStdOutput y hStdError: no necesitamos leer la salida, pero deben ser válidos
+    ; Usar INVALID_HANDLE_VALUE (-1) o 0 para que el hijo no herede stdout/stderr
+    hStdOutputOffset := hStdInputOffset + A_PtrSize
+    hStdErrorOffset := hStdOutputOffset + A_PtrSize
+    NumPut(0, si, hStdOutputOffset, "Ptr")
+    NumPut(0, si, hStdErrorOffset, "Ptr")
+
+    ; --- Preparar PROCESS_INFORMATION ---
+    piSize := A_PtrSize == 8 ? 24 : 16
+    VarSetCapacity(pi, piSize, 0)
+
+    ; --- Construir comando ---
+    cmd := "adb"
+    if (adbDevice != "")
+        cmd .= " -s " . adbDevice
+    cmd .= " shell"
+
+    ; --- CreateProcessW con CREATE_NO_WINDOW (0x08000000) ---
+    result := DllCall("CreateProcessW"
+        , "Ptr", 0              ; lpApplicationName
+        , "Str", cmd            ; lpCommandLine
+        , "Ptr", 0              ; lpProcessAttributes
+        , "Ptr", 0              ; lpThreadAttributes
+        , "Int", 1              ; bInheritHandles = TRUE
+        , "UInt", 0x08000000    ; dwCreationFlags = CREATE_NO_WINDOW
+        , "Ptr", 0              ; lpEnvironment
+        , "Ptr", 0              ; lpCurrentDirectory
+        , "Ptr", &si            ; lpStartupInfo
+        , "Ptr", &pi)           ; lpProcessInformation
+
+    ; Cerrar el extremo de lectura del pipe (ya fue heredado por el hijo)
+    DllCall("CloseHandle", "Ptr", hStdinRead)
+
+    if (!result) {
+        DllCall("CloseHandle", "Ptr", hStdinWrite)
+        return false
+    }
+
+    ; Guardar handles
+    _AdbShell_hProcess := NumGet(pi, 0, "Ptr")    ; hProcess
+    hThread := NumGet(pi, A_PtrSize, "Ptr")        ; hThread
+    DllCall("CloseHandle", "Ptr", hThread)         ; No necesitamos el thread handle
+    _AdbShell_hStdinWrite := hStdinWrite
+    _AdbShell_Vivo := true
+
+    ; Esperar un poco para que el shell inicie
+    Sleep, 500
+    return true
 }
 
 ; ============================================================================
 ; Enviar comando al shell ADB (con auto-reconexión si murió)
 ; ============================================================================
 AdbShell_Enviar(comando, adbDevice := "") {
-    global _AdbShell, _AdbVivo
+    global _AdbShell_hProcess, _AdbShell_hStdinWrite, _AdbShell_Vivo
 
-    if (!_AdbVivo || !_AdbShell || _AdbShell.Status != 0) {
+    ; Verificar si el proceso sigue vivo
+    if (_AdbShell_Vivo && _AdbShell_hProcess) {
+        exitCode := 0
+        DllCall("GetExitCodeProcess", "Ptr", _AdbShell_hProcess, "UInt*", exitCode)
+        if (exitCode != 259) {  ; No está STILL_ACTIVE
+            _AdbShell_Vivo := false
+        }
+    }
+
+    if (!_AdbShell_Vivo) {
         if !AdbShell_Iniciar(adbDevice)
             return false
     }
 
-    try {
-        _AdbShell.StdIn.WriteLine(comando)
-        return true
-    } catch {
-        _AdbVivo := false
-        ; Un reintento
+    ; Escribir comando + newline al pipe stdin
+    cmdBytes := comando . "`n"
+    VarSetCapacity(buf, StrLen(cmdBytes) + 1, 0)
+    StrPut(cmdBytes, &buf, "UTF-8")
+    bytesToWrite := StrLen(cmdBytes)
+    bytesWritten := 0
+
+    result := DllCall("WriteFile"
+        , "Ptr", _AdbShell_hStdinWrite
+        , "Ptr", &buf
+        , "UInt", bytesToWrite
+        , "UInt*", bytesWritten
+        , "Ptr", 0)
+
+    if (!result || bytesWritten = 0) {
+        ; Falló la escritura, intentar reconectar una vez
+        _AdbShell_Vivo := false
         if (AdbShell_Iniciar(adbDevice)) {
-            try {
-                _AdbShell.StdIn.WriteLine(comando)
-                return true
-            }
+            VarSetCapacity(buf2, StrLen(cmdBytes) + 1, 0)
+            StrPut(cmdBytes, &buf2, "UTF-8")
+            result := DllCall("WriteFile"
+                , "Ptr", _AdbShell_hStdinWrite
+                , "Ptr", &buf2
+                , "UInt", bytesToWrite
+                , "UInt*", bytesWritten
+                , "Ptr", 0)
+            return (result && bytesWritten > 0)
         }
+        return false
     }
-    return false
+    return true
 }
 
 ; ============================================================================
@@ -83,16 +176,28 @@ AdbShell_Swipe(x1, y1, x2, y2, duracion := 300, adbDevice := "") {
 ; Cerrar shell ADB
 ; ============================================================================
 AdbShell_Cerrar() {
-    global _AdbShell, _AdbVivo
+    global _AdbShell_hProcess, _AdbShell_hStdinWrite, _AdbShell_Vivo
 
-    if (_AdbShell) {
+    if (_AdbShell_hStdinWrite) {
         try {
-            _AdbShell.StdIn.WriteLine("exit")
-            _AdbShell.Terminate()
+            ; Enviar "exit" antes de cerrar
+            exitCmd := "exit`n"
+            VarSetCapacity(buf, 10, 0)
+            StrPut(exitCmd, &buf, "UTF-8")
+            DllCall("WriteFile", "Ptr", _AdbShell_hStdinWrite, "Ptr", &buf, "UInt", 5, "UInt*", bw, "Ptr", 0)
+            Sleep, 100
         }
+        DllCall("CloseHandle", "Ptr", _AdbShell_hStdinWrite)
     }
-    _AdbVivo := false
-    _AdbShell := ""
+
+    if (_AdbShell_hProcess) {
+        DllCall("TerminateProcess", "Ptr", _AdbShell_hProcess, "UInt", 0)
+        DllCall("CloseHandle", "Ptr", _AdbShell_hProcess)
+    }
+
+    _AdbShell_hProcess := 0
+    _AdbShell_hStdinWrite := 0
+    _AdbShell_Vivo := false
 }
 
 ; ============================================================================

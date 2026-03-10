@@ -1846,6 +1846,28 @@ HacerClicEnVentana(screenX, screenY) {
 HacerScrollEnVentana(relX, relY, cantidad) {
     global VentanaObjetivo, ModoADB, AdbDevice, AdbResX, AdbResY
 
+    ; Obtener HWND de la ventana
+    WinGet, hwndPadre, ID, %VentanaObjetivo%
+    if (!hwndPadre) {
+        Log("AVISO: No se encontró la ventana para swipe")
+        return
+    }
+
+    ; Convertir coordenadas window-relative a client-relative
+    ; (SeleccionarPuntoScroll guarda coords relativas a la ventana incluyendo
+    ; título/bordes, pero SendMessage/ADB necesitan coords del área cliente)
+    VarSetCapacity(ptOrigin, 8, 0)
+    NumPut(0, ptOrigin, 0, "Int")
+    NumPut(0, ptOrigin, 4, "Int")
+    DllCall("ClientToScreen", "Ptr", hwndPadre, "Ptr", &ptOrigin)
+    clientOriginScreenX := NumGet(ptOrigin, 0, "Int")
+    clientOriginScreenY := NumGet(ptOrigin, 4, "Int")
+    WinGetPos, winX, winY,,, %VentanaObjetivo%
+    bordX := clientOriginScreenX - winX
+    bordY := clientOriginScreenY - winY
+    relX := relX - bordX
+    relY := relY - bordY
+
     ; Calcular distancia total del swipe
     distancia := cantidad * 40
     yInicio := relY + (distancia // 2)   ; Punto inferior (donde empieza el dedo)
@@ -1854,20 +1876,12 @@ HacerScrollEnVentana(relX, relY, cantidad) {
         yFin := 10
 
     if (ModoADB) {
-        ; Swipe via ADB
-        WinGet, hwndPadre, ID, %VentanaObjetivo%
+        ; Swipe via ADB (coordenadas ya son client-relative)
         ClientToAndroid(hwndPadre, relX, yInicio, AdbResX, AdbResY, ax1, ay1)
         ClientToAndroid(hwndPadre, relX, yFin, AdbResX, AdbResY, ax2, ay2)
         duracion := 300 + (cantidad * 50)
         AdbShell_Swipe(ax1, ay1, ax2, ay2, duracion, AdbDevice)
         Log("ADB swipe (" . ax1 . "," . ay1 . ") -> (" . ax2 . "," . ay2 . ") dur=" . duracion . "ms")
-        return
-    }
-
-    ; Obtener HWND de la ventana padre
-    WinGet, hwndPadre, ID, %VentanaObjetivo%
-    if (!hwndPadre) {
-        Log("AVISO: No se encontró la ventana para swipe")
         return
     }
 
