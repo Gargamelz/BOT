@@ -299,7 +299,9 @@ CargarConfig() {
     ; Sección ADB
     IniRead, tmp, %ArchivoConfig%, ADB, ModoADB, 0
     ModoADB := tmp + 0
-    IniRead, AdbDevice, %ArchivoConfig%, ADB, AdbDevice, %AdbDevice%
+    IniRead, AdbDevice, %ArchivoConfig%, ADB, AdbDevice, -
+    if (AdbDevice = "-")
+        AdbDevice := ""
     IniRead, tmp, %ArchivoConfig%, ADB, AdbResX, %AdbResX%
     AdbResX := tmp + 0
     IniRead, tmp, %ArchivoConfig%, ADB, AdbResY, %AdbResY%

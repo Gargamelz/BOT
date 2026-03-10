@@ -42,6 +42,17 @@ AdbShell_Iniciar(adbDevice := "") {
     ; El extremo de escritura NO debe ser heredable (solo el de lectura va al hijo)
     DllCall("SetHandleInformation", "Ptr", hStdinWrite, "UInt", 1, "UInt", 0)
 
+    ; --- Abrir NUL device para stdout/stderr del hijo ---
+    ; adb necesita poder escribir a stdout/stderr, pero no nos interesa leer la salida
+    ; GENERIC_WRITE=0x40000000, FILE_SHARE_READ|WRITE=3, OPEN_EXISTING=3
+    hNul := DllCall("CreateFileW", "Str", "NUL", "UInt", 0x40000000
+        , "UInt", 3, "Ptr", &saAttr, "UInt", 3, "UInt", 0, "Ptr", 0, "Ptr")
+    if (hNul = -1) {
+        DllCall("CloseHandle", "Ptr", hStdinRead)
+        DllCall("CloseHandle", "Ptr", hStdinWrite)
+        return false
+    }
+
     ; --- Preparar STARTUPINFOW ---
     siSize := A_PtrSize == 8 ? 104 : 68
     VarSetCapacity(si, siSize, 0)
@@ -51,16 +62,13 @@ AdbShell_Iniciar(adbDevice := "") {
     flagsOffset := A_PtrSize == 8 ? 60 : 44
     NumPut(0x100, si, flagsOffset, "UInt")
 
-    ; hStdInput = pipe read end
+    ; hStdInput = pipe read end, hStdOutput/hStdError = NUL device
     hStdInputOffset := A_PtrSize == 8 ? 80 : 56
     NumPut(hStdinRead, si, hStdInputOffset, "Ptr")
-
-    ; hStdOutput y hStdError: no necesitamos leer la salida, pero deben ser válidos
-    ; Usar INVALID_HANDLE_VALUE (-1) o 0 para que el hijo no herede stdout/stderr
     hStdOutputOffset := hStdInputOffset + A_PtrSize
     hStdErrorOffset := hStdOutputOffset + A_PtrSize
-    NumPut(0, si, hStdOutputOffset, "Ptr")
-    NumPut(0, si, hStdErrorOffset, "Ptr")
+    NumPut(hNul, si, hStdOutputOffset, "Ptr")
+    NumPut(hNul, si, hStdErrorOffset, "Ptr")
 
     ; --- Preparar PROCESS_INFORMATION ---
     piSize := A_PtrSize == 8 ? 24 : 16
@@ -85,8 +93,9 @@ AdbShell_Iniciar(adbDevice := "") {
         , "Ptr", &si            ; lpStartupInfo
         , "Ptr", &pi)           ; lpProcessInformation
 
-    ; Cerrar el extremo de lectura del pipe (ya fue heredado por el hijo)
+    ; Cerrar handles que ya fueron heredados por el hijo
     DllCall("CloseHandle", "Ptr", hStdinRead)
+    DllCall("CloseHandle", "Ptr", hNul)
 
     if (!result) {
         DllCall("CloseHandle", "Ptr", hStdinWrite)
